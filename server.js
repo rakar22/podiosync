@@ -1,4 +1,5 @@
 import express from "express";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -167,18 +168,9 @@ function layout({ title, stats, body, flash }) {
 </body></html>`;
 }
 
-const AVATAR_SLUGS = new Set([
-  "lunavarela",
-  "kikestream",
-  "valemora",
-  "brunosalta",
-  "sofiq",
-  "camirojas",
-  "diegovargas",
-]);
-
 function avatarHtml(slug, name) {
-  if (AVATAR_SLUGS.has(slug)) {
+  const file = path.join(__dirname, "public", "avatars", `${slug}.jpg`);
+  if (fs.existsSync(file)) {
     return `<img class="avatar" src="/public/avatars/${esc(slug)}.jpg" alt=""/>`;
   }
   const parts = String(name || "").trim().split(/\s+/);
