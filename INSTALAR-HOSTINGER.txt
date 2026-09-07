@@ -1,0 +1,162 @@
+INSTALAR PODIOSYNC.ES EN HOSTINGER (Node.js)
+===========================================
+
+Necesitas un plan Hostinger con Node.js (Business, Cloud o VPS).
+El hosting compartido barato SIN selector Node no sirve.
+
+------------------------------------------------
+A. Crear la app Node
+------------------------------------------------
+1. Entra a hPanel.
+2. Sitios web → Administrar el dominio (o créalo / apúntalo).
+3. Avanzado → Node.js → Create application.
+4. Rellena:
+     Node.js version ........ 20.x (o 18+)
+     Application mode ....... Production
+     Application root ....... public_html   (o una subcarpeta, ej. podiosync)
+     Application URL ........ podiosync.es
+     Application startup .... server.js
+5. Create.
+
+------------------------------------------------
+B. Subir este zip
+------------------------------------------------
+1. Archivos → Administrador de archivos.
+2. Entra a la Application root que elegiste.
+3. Sube el zip o clona este repo (github.com/rakar22/podiosync) y descomprímelo.
+4. La carpeta tiene que mostrar server.js y package.json al mismo nivel.
+   Si quedó una carpeta extra (podiosync/server.js), mueve
+   TODO el contenido un nivel arriba.
+
+Estructura correcta:
+
+  server.js
+  package.json
+  package-lock.json   (si viene)
+  INSTALAR-HOSTINGER.txt
+  README.txt
+  ENV.txt
+  lib/
+    categories.js
+    seed.js
+    store.js
+  public/
+    styles.css
+    favicon.svg
+    og.jpg
+  data/
+    (vacía; se crea board.json sola)
+
+------------------------------------------------
+C. Instalar dependencias y arrancar
+------------------------------------------------
+1. Vuelve a Node.js → tu app.
+2. Pulsa NPM Install. Espera a que termine (express + stripe).
+3. Start / Restart.
+
+Abre tu dominio. Deberías ver el ranking con ~45 creators de ejemplo
+y un botón “Reclamar puesto”. Eso es el modo DEMO: el pago se simula.
+
+Si no carga:
+  - Mira los logs de la app Node (botón Logs).
+  - Confirma que el startup file es server.js.
+  - Confirma que Node >= 18.
+  - GET /health debe devolver {"ok":true}.
+
+------------------------------------------------
+D. Variables de entorno
+------------------------------------------------
+Node.js → Environment variables. Añade:
+
+  PUBLIC_URL=https://tu-dominio.com
+  STRIPE_SECRET_KEY=sk_test_...     (o sk_live_...)
+  STRIPE_WEBHOOK_SECRET=whsec_...
+  EMPTY_BOARD=true                  (cuando lances de verdad)
+
+Restart después de guardar.
+
+------------------------------------------------
+E. Stripe (cobrar de verdad)
+------------------------------------------------
+Tu cuenta Stripe ya puede ser la de producción. Empieza SIEMPRE en test.
+
+1. Dashboard Stripe → Developers → API keys.
+   Copia la Secret key de TEST (sk_test_...).
+2. hPanel → Node.js → Environment:
+     STRIPE_SECRET_KEY=sk_test_...
+     PUBLIC_URL=https://tu-dominio.com
+3. Restart. El header debe decir "Stripe test".
+4. Reclama un puesto. Te manda a checkout.stripe.com.
+   Tarjeta: 4242 4242 4242 4242 · fecha futura · CVC 123
+5. Al volver, caes en /paid?session_id=cs_... y el ranking se actualiza
+   AUNQUE el webhook todavía no esté. El webhook es el respaldo.
+
+Webhook (recomendado, no bloquea el cobro):
+  Developers → Webhooks → Add endpoint
+  URL:     https://tu-dominio.com/webhook/stripe
+  Evento:  checkout.session.completed
+  Copia el Signing secret (whsec_...) a STRIPE_WEBHOOK_SECRET y Restart.
+
+Cuando el test funcione:
+  - cambia STRIPE_SECRET_KEY a sk_live_...
+  - crea el webhook en modo Live
+  - el header dirá "Stripe · pagos reales"
+
+GET /health debe devolver { "ok": true, "stripe": "test"|"live", "webhook": true }
+
+Sin estas claves la app sigue viva en modo demo. No se rompe.
+
+Tu cuenta conectada: utilix.cloud. Usa sk_test_ para las pruebas;
+sk_live_ cobra dinero de verdad.
+
+------------------------------------------------
+F. Lanzar el ranking vacío (producción)
+------------------------------------------------
+Los 45 perfiles son FICTICIOS, para que el tablero no se vea muerto
+mientras pruebas. El día del launch:
+
+  1. Stop de la app
+  2. Borra data/board.json (y data/pending.json si existe)
+  3. EMPTY_BOARD=true
+  4. Start
+
+El #1 costará $10. A partir de ahí, solo sube.
+
+------------------------------------------------
+G. Dominio y SSL
+------------------------------------------------
+Hostinger pone SSL solo. Asegúrate de que PUBLIC_URL va con https://
+sin barra final. El Node app tiene que estar asociado a ese dominio
+(no a un /public_html estático de WordPress).
+
+------------------------------------------------
+H. Backup
+------------------------------------------------
+data/board.json ES el negocio. Descárgalo de vez en cuando.
+Si lo pierdes, se pierde el ranking y los pagos contabilizados.
+
+------------------------------------------------
+I. Cómo se gana dinero
+------------------------------------------------
+Misma palanca que outbid.lol:
+
+  - Entrar cuesta mínimo $10
+  - Quitar el #1 cuesta $5 más que el actual
+  - Los bids no caducan (all-time)
+  - Hoy / Diario recargan el pozo cada 24 h
+  - Cero ads, cero revenue share, cero cuentas
+
+Arranca hablando del #1 barato en X, Instagram y TikTok
+(creators ES, MX, AR, CO). El precio es el marketing.
+
+------------------------------------------------
+J. Cambiar el nicho
+------------------------------------------------
+Si más adelante quieres otro vertical (pódcasts, agencias, OnlyFans
+managers, e-commerce LATAM…):
+
+  lib/categories.js   nombres de categorías
+  lib/seed.js         fichas de ejemplo
+  Textos en server.js “influencers de España y Latinoamérica”
+
+La mecánica no se toca.
