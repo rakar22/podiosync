@@ -24,6 +24,7 @@ import {
   getPending,
   fulfillPaid,
   quoteClaim,
+  voteOn,
 } from "./lib/store.js";
 import {
   stripeEnabled,
@@ -78,6 +79,16 @@ app.use(
 );
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+app.use((req, res, next) => {
+  const cookie = String(req.headers.cookie || "");
+  const found = cookie.match(/(?:^|;\s*)psvid=([^;]+)/);
+  req.voter = found ? decodeURIComponent(found[1]) : "";
+  if (!req.voter) {
+    req.voter = `v_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    res.append("Set-Cookie", `psvid=${encodeURIComponent(req.voter)}; Path=/; Max-Age=31536000; SameSite=Lax`);
+  }
+  next();
+});
 
 function stripeBadge() {
   const m = stripeMode();
@@ -113,22 +124,25 @@ function ago(iso) {
   return `hace ${Math.floor(s / 86400)} d`;
 }
 
-function layout({ title, stats, body, flash }) {
-  const days = Math.max(
-    1,
-    Math.round((Date.now() - new Date(stats.launched_at).getTime()) / 86_400_000),
-  );
+function compact(n) {
+  const v = Number(n) || 0;
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1).replace(".0", "")} M`;
+  if (v >= 1000) return `${(v / 1000).toFixed(v >= 10_000 ? 0 : 1).replace(".0", "")} mil`;
+  return num(v);
+}
+
+function layout({ title, stats, body, flash, nav = "rank" }) {
   return `<!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>${esc(title)} · PodioSync</title>
-  <meta name="description" content="Reclama un puesto en el ranking público de influencers de España y Latinoamérica."/>
+  <meta name="description" content="El ranking público de influencers de España y Latinoamérica. Paga para subir. Vota a los más queridos y a los que más hate tienen."/>
   <meta property="og:title" content="PodioSync"/>
-  <meta property="og:description" content="El ranking público de influencers ES/LATAM. El puesto es lo que pagas."/>
+  <meta property="og:description" content="Influencers ES/LATAM. Ranking de pago, más queridos y más hate."/>
   <meta property="og:image" content="/public/og.jpg"/>
-  <meta name="theme-color" content="#F2F2F7"/>
+  <meta name="theme-color" content="#F4F4F6"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <link rel="icon" href="/public/favicon.svg"/>
   <link rel="apple-touch-icon" href="/public/icon.jpg"/>
@@ -137,68 +151,144 @@ function layout({ title, stats, body, flash }) {
 <body>
   <header><div class="wrap">
     <div class="top">
-      <a class="wordmark" href="/">PodioSync</a>
+      <a class="wordmark" href="/">Podio<span>Sync</span></a>
       <nav>
-        <a href="/categories">Explorar</a>
-        <a href="/about">About</a>
-        <a href="/faq">FAQ</a>
-        <a href="/rules">Reglas</a>
+        <a class="${nav === "rank" ? "on" : ""}" href="/">Ranking</a>
+        <a class="${nav === "love" ? "on" : ""}" href="/?board=love">Queridos</a>
+        <a class="${nav === "hate" ? "on" : ""}" href="/?board=hate">Hate</a>
+        <a class="${nav === "cats" ? "on" : ""}" href="/categories">Categorías</a>
+        <a class="${nav === "claim" ? "on" : ""}" href="/claim">Reclamar</a>
       </nav>
     </div>
-    <p class="meta"><b>${stats.online} online</b> · ${num(stats.visitors)} visitantes · <a href="/about">stats</a> · <span>${stripeBadge()}</span></p>
   </div></header>
   <main class="wrap">
     ${flash ? `<p class="flash">${esc(flash)}</p>` : ""}
     ${body}
   </main>
   <footer><div class="wrap">
-    <p>Algunas cifras de este <a href="/about">side project</a> desde su lanzamiento hace ${days} días</p>
+    <p>El puesto de pago es lo que pagas. Queridos y hate los decide el público.</p>
     <div class="stats">
-      <div><b>$ ${num(stats.revenue)}</b>ingresos</div>
-      <div><b>${num(stats.listings)}</b>creadores en el ranking</div>
-      <div><b>${num(stats.visitors)}</b>visitantes</div>
+      <div><b>${num(stats.listings)}</b>creadores</div>
+      <div><b>${num(stats.visitors)}</b>visitas</div>
+      <div><b>${num(stats.online)}</b>online ahora</div>
     </div>
-    <p style="margin-top:1.5rem">Rank is what you pay.</p>
+    <p style="margin-top:1.4rem"><a href="/about">About</a> · <a href="/faq">FAQ</a> · <a href="/rules">Reglas</a> · ${esc(stripeBadge())}</p>
   </div></footer>
   <div class="tabbar"><nav>
-    <a href="/" class="${title !== "Categorías" && title !== "Reclamar" ? "on" : ""}">Ranking</a>
-    <a href="/categories" class="${title === "Categorías" ? "on" : ""}">Nichos</a>
-    <a href="/claim">Reclamar</a>
+    <a href="/" class="${nav === "rank" ? "on" : ""}">Ranking</a>
+    <a href="/?board=love" class="${nav === "love" ? "on" : ""}">Queridos</a>
+    <a href="/?board=hate" class="${nav === "hate" ? "on" : ""}">Hate</a>
+    <a href="/claim" class="${nav === "claim" ? "on" : ""}">Reclamar</a>
   </nav></div>
 </body></html>`;
 }
 
-function avatarHtml(slug, name) {
+function avatarHtml(slug, name, cls = "avatar") {
   const file = path.join(__dirname, "public", "avatars", `${slug}.jpg`);
   if (fs.existsSync(file)) {
-    return `<img class="avatar" src="/public/avatars/${esc(slug)}.jpg" alt=""/>`;
+    return `<img class="${cls}" src="/public/avatars/${esc(slug)}.jpg" alt="${esc(name)}"/>`;
   }
   const parts = String(name || "").trim().split(/\s+/);
   const ini = parts.length > 1
     ? (parts[0][0] + parts[1][0]).toUpperCase()
     : String(name || "?").slice(0, 2).toUpperCase();
-  return `<span class="avatar fallback">${esc(ini)}</span>`;
+  return `<span class="${cls} fallback">${esc(ini)}</span>`;
 }
 
-function rankArticles(listings) {
+function catCover(slug) {
+  const file = path.join(__dirname, "public", "categories", `${slug}.jpg`);
+  return fs.existsSync(file) ? `/public/categories/${slug}.jpg` : "";
+}
+
+function voteForms(listing, next = "/") {
+  return `<div class="votes">
+    <form method="post" action="/vote">
+      <input type="hidden" name="slug" value="${esc(listing.slug)}"/>
+      <input type="hidden" name="kind" value="love"/>
+      <input type="hidden" name="next" value="${esc(next)}"/>
+      <button class="love" type="submit">♥ ${compact(listing.love)}</button>
+    </form>
+    <form method="post" action="/vote">
+      <input type="hidden" name="slug" value="${esc(listing.slug)}"/>
+      <input type="hidden" name="kind" value="hate"/>
+      <input type="hidden" name="next" value="${esc(next)}"/>
+      <button class="hate" type="submit">✕ ${compact(listing.hate)}</button>
+    </form>
+  </div>`;
+}
+
+function scoreLabel(listing, board) {
+  if (board === "love") return `♥ ${compact(listing.love)}`;
+  if (board === "hate") return `✕ ${compact(listing.hate)}`;
+  return money(listing.window_amount || listing.amount);
+}
+
+function rankArticles(listings, board = "all", next = "/") {
   return `<div class="ios-group">${listings
     .map((l) => {
       const cat = CATEGORY_MAP[l.category_slug];
-      const price = claimPriceFor(l.window_amount || l.amount, l.rank === 1);
       return `<article>
         <span class="rank">${l.rank}</span>
         ${avatarHtml(l.slug, l.display_name)}
         <div class="row-main">
           <h2><a href="/creator/${esc(l.slug)}">${esc(l.display_name)}</a></h2>
-          <p class="muted" style="margin:0;font-size:.8rem">${esc(l.handle)}${cat ? ` · ${esc(cat.name)}` : ""}</p>
+          <p class="muted" style="font-size:.8rem">${esc(l.handle)}${cat ? ` · ${esc(cat.name)}` : ""}</p>
         </div>
-        <div style="text-align:right">
-          <p class="price">${money(l.window_amount || l.amount)}</p>
-          <a href="/claim?amount=${price}&category=${esc(l.category_slug)}&handle=${encodeURIComponent(l.handle)}" class="muted" style="font-size:.75rem;font-weight:600">Reclamar</a>
+        <div style="text-align:right;display:grid;gap:.25rem;justify-items:end">
+          <p class="price">${scoreLabel(l, board)}</p>
+          ${voteForms(l, next)}
         </div>
       </article>`;
     })
     .join("")}</div>`;
+}
+
+function podiumHtml(listings, board = "all") {
+  const top = listings.slice(0, 3);
+  if (!top.length) return "";
+  const order = top.length === 3 ? [top[1], top[0], top[2]] : top;
+  const cls = top.length === 3 ? ["p2", "p1", "p3"] : ["p1", "p2", "p3"];
+  return `<div class="podium">${order
+    .map((l, i) => {
+      const c = cls[i] || "p3";
+      return `<a class="card ${c}" href="/creator/${esc(l.slug)}">
+        <span class="place">#${l.rank}</span>
+        ${avatarHtml(l.slug, l.display_name)}
+        <div>
+          <h3>${esc(l.display_name)}</h3>
+          <p class="muted" style="margin:.2rem 0 0;font-size:.8rem">${esc(l.handle)}</p>
+        </div>
+        <p class="score">${scoreLabel(l, board)}</p>
+      </a>`;
+    })
+    .join("")}</div>`;
+}
+
+function modeTabs(board, cat = "") {
+  const q = cat ? `&cat=${esc(cat)}` : "";
+  const items = [
+    ["all", "Ranking", ""],
+    ["love", "Más queridos", "love"],
+    ["hate", "Más hate", "hate"],
+    ["today", "Últimas 24h", ""],
+  ];
+  return `<div class="modes">${items
+    .map(
+      ([id, label, extra]) =>
+        `<a class="${extra} ${board === id ? "on" : ""}" href="/?board=${id}${q}">${label}</a>`,
+    )
+    .join("")}</div>`;
+}
+
+function categoryChips(active) {
+  const populated = categorySummaries().filter((c) => c.count > 0);
+  const links = [`<a class="${active ? "" : "on"}" href="/">Todos</a>`].concat(
+    populated.map(
+      (c) =>
+        `<a class="${active === c.slug ? "on" : ""}" href="/category/${c.slug}">${esc(c.name)}</a>`,
+    ),
+  );
+  return `<div class="chips">${links.join("")}</div>`;
 }
 
 function claimForm({ amount, category, handle, error }) {
@@ -232,7 +322,7 @@ function claimForm({ amount, category, handle, error }) {
           <button type="button" class="stepper" data-delta="1">+</button>
         </div>
       </label>
-      <button class="btn" type="submit">${stripeEnabled() ? "Pagar con Stripe y reclamar" : "Pagar y reclamar el puesto"}</button>
+      <button class="btn wide" type="submit">${stripeEnabled() ? "Pagar con Stripe y reclamar" : "Pagar y reclamar el puesto"}</button>
     </form>
     <script>
       document.querySelectorAll("[data-delta]").forEach((b) => {
@@ -247,71 +337,83 @@ function claimForm({ amount, category, handle, error }) {
 
 app.get("/", (req, res) => {
   bumpVisitor();
-  const board = req.query.board === "today" || req.query.board === "daily" ? req.query.board : "all";
+  const board =
+    req.query.board === "today" ||
+    req.query.board === "daily" ||
+    req.query.board === "love" ||
+    req.query.board === "hate"
+      ? req.query.board
+      : "all";
   const cat = typeof req.query.cat === "string" ? req.query.cat : "";
   const listings = listBoard(board, cat || null);
-  const activity = listActivity();
   const stats = getStats();
   const top = listings[0];
-  const take = claimPriceFor(top?.window_amount ?? 0, true);
-  const catOpts = [`<option value="">Todas · ranking global</option>`]
-    .concat(CATEGORIES.map((c) => `<option value="${c.slug}" ${c.slug === cat ? "selected" : ""}>${esc(c.name)}</option>`))
-    .join("");
-  const tabs = [
-    ["all", "All-time"],
-    ["today", "Hoy"],
-    ["daily", "Diario"],
-  ]
-    .map(
-      ([id, label]) =>
-        `<a class="${board === id ? "on" : ""}" href="/?board=${id}${cat ? `&cat=${esc(cat)}` : ""}">${label}</a>`,
-    )
-    .join("");
-  const acts = activity
-    .map(
-      (a) =>
-        `<li><a href="/creator/${esc(a.slug)}">${esc(a.display_name)}</a> <span class="muted">${a.kind === "raise" ? "subió" : "entró"}${a.rank ? ` al #${a.rank}` : ""} · ${money(a.amount)}</span><div class="subtle">${ago(a.created_at)}</div></li>`,
-    )
-    .join("");
+  const take = claimPriceFor(top?.window_amount ?? top?.amount ?? 0, true);
+  const nav = board === "love" || board === "hate" ? board : "rank";
+  const titles = {
+    all: "El ranking de influencers ES & LATAM",
+    love: "Los más queridos",
+    hate: "Los que más hate tienen",
+    today: "Lo que se movió en 24 horas",
+    daily: "Ranking del día",
+  };
+  const leads = {
+    all: "Cada categoría tiene su propio podio. El puesto de pago es lo que pagas. El cariño y el hate los vota el público.",
+    love: "Un voto por persona y creador. Cambia a hate si te arrepientes. Gana quien más corazones suma.",
+    hate: "El tablero del drama. No es un pago: es lo que la gente marca. Un voto por persona.",
+    today: "Solo cuentan los pagos de las últimas 24 horas.",
+    daily: "El recuento del día UTC.",
+  };
+  const next = `/?board=${board}${cat ? `&cat=${esc(cat)}` : ""}`;
+  let boardBody = "";
+  if (!listings.length) {
+    boardBody = `<p class="muted">Nadie en este tablero todavía.</p>`;
+  } else if (board === "love" || board === "hate" || board === "today" || cat) {
+    boardBody = `${podiumHtml(listings, board)}${rankArticles(listings.slice(3), board, next)}`;
+  } else {
+    const groups = CATEGORIES.map((c) => ({
+      ...c,
+      items: listings.filter((l) => l.category_slug === c.slug).slice(0, 6),
+    })).filter((c) => c.items.length);
+    boardBody = `${podiumHtml(listings, board)}${groups
+      .map((c) => {
+        const local = c.items.map((l, i) => ({ ...l, rank: i + 1 }));
+        return `<section class="rail">
+          <div class="rail-head">
+            <h2>${esc(c.name)}</h2>
+            <a href="/category/${c.slug}">Ver todos</a>
+          </div>
+          ${rankArticles(local, board, next)}
+        </section>`;
+      })
+      .join("")}`;
+  }
   res.type("html").send(
     layout({
-      title: "Reclama un puesto",
+      title: titles[board] || "Ranking",
       stats,
+      nav,
       flash: req.query.ok ? `Listo. Estás en el #${esc(req.query.rank || "")}.` : "",
       body: `
-      <section class="panel">
-        <h1 id="claim-title">Reclama el #1 por ${money(take)}</h1>
-        <p class="muted">El ranking público de influencers de España y Latinoamérica. Sin ads, sin API keys, sin revenue share. El puesto es lo que pagas.</p>
-        <ol class="how">
-          <li><b>1. Elige nicho.</b> TikTok, Twitch, belleza, fútbol…</li>
-          <li><b>2. Pagas.</b> Mínimo $10. Quitar el #1 cuesta $5 más.</li>
-          <li><b>3. Subes.</b> Un pago confirmado reordena el tablero.</li>
-        </ol>
-        <form method="get" action="/claim" class="row" id="claim-top">
-          <label>Elige una categoría<select name="category">${catOpts}</select></label>
-          <div class="step-row">
-            <button type="button" class="stepper" data-delta="-1" aria-label="Bajar">−</button>
-            <input class="field" type="number" name="amount" id="claim-amount" min="10" max="999999" step="1" value="${take}"/>
-            <button type="button" class="stepper" data-delta="1" aria-label="Subir">+</button>
+      <section class="hero">
+        <div>
+          <p class="muted" style="margin:0 0 .4rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;font-size:.72rem">PodioSync</p>
+          <h1>${esc(titles[board])}</h1>
+          <p class="lead">${esc(leads[board])}</p>
+          <div class="hero-actions">
+            <a class="btn" href="/claim?amount=${take}">Reclamar #1 por ${money(take)}</a>
+            <a class="btn ghost" href="/categories">Explorar categorías</a>
           </div>
-          <button class="btn" type="submit">Reclamar puesto</button>
-        </form>
+        </div>
+        <div class="panel" style="margin:0">
+          <p class="muted" style="margin:0 0 .4rem;font-size:.8rem;font-weight:700">Ahora mismo</p>
+          <p style="margin:0;font-size:1.05rem;font-weight:750">${top ? `#1 ${esc(top.display_name)}` : "Sin #1"}</p>
+          <p class="muted" style="margin:.35rem 0 0">${top ? scoreLabel(top, board) : "—"} · ${num(stats.listings)} perfiles</p>
+        </div>
       </section>
-      <script>
-        document.querySelectorAll("#claim-top .stepper").forEach((b) => {
-          b.addEventListener("click", () => {
-            const el = document.getElementById("claim-amount");
-            const next = Math.max(10, Number(el.value || 10) + Number(b.dataset.delta));
-            el.value = next;
-            const h = document.getElementById("claim-title");
-            if (h) h.textContent = "Reclama el #1 por $" + next.toLocaleString("en-US");
-          });
-        });
-      </script>
-      <div class="tabs">${tabs}</div>
-      ${listings.length ? rankArticles(listings) : `<p class="muted">Nadie ha pagado en esta ventana. El #1 cuesta $10.</p>`}
-      <h2 style="margin-top:3rem">Última actividad</h2>
-      <ul class="list">${acts}</ul>`,
+      ${modeTabs(board, cat)}
+      ${categoryChips(cat)}
+      ${boardBody}`,
     }),
   );
 });
@@ -320,34 +422,42 @@ app.get("/categories", (_req, res) => {
   const stats = getStats();
   const cats = categorySummaries()
     .filter((c) => c.count > 0)
-    .map(
-      (c) => `<li>
-        <a href="/category/${c.slug}"><strong>${esc(c.name)}</strong></a>
-        <p class="muted">${esc(c.blurb)}</p>
-        ${c.leader ? `<p>#1 <a href="/creator/${c.leader.slug}">${esc(c.leader.name)}</a> <span class="wine">${money(c.leader.amount)}</span></p>` : ""}
-        <p class="subtle">${c.count} en el ranking</p>
-      </li>`,
-    )
+    .map((c) => {
+      const cover = catCover(c.slug);
+      return `<a href="/category/${c.slug}">
+        ${cover ? `<img src="${cover}" alt=""/>` : `<div class="cat-ph"></div>`}
+        <span>${esc(c.name)}</span>
+        <small>${c.count} creadores${c.leader ? ` · #1 ${esc(c.leader.name)}` : ""}</small>
+      </a>`;
+    })
     .join("");
   res.type("html").send(
     layout({
       title: "Categorías",
+      nav: "cats",
       stats,
-      body: `<h1>Categorías</h1><p class="muted">Cada nicho tiene su propio ranking.</p><ul class="list">${cats}</ul>`,
+      body: `<h1>Categorías</h1><p class="lead">Cada nicho tiene ranking, queridos y hate.</p><div class="cat-grid">${cats}</div>`,
     }),
   );
 });
 
 app.get("/category/:slug", (req, res) => {
   const cat = CATEGORY_MAP[req.params.slug];
-  const board = req.query.board === "today" || req.query.board === "daily" ? req.query.board : "all";
+  const board =
+    req.query.board === "today" ||
+    req.query.board === "love" ||
+    req.query.board === "hate"
+      ? req.query.board
+      : "all";
   const listings = listBoard(board, req.params.slug);
   const stats = getStats();
-  const take = claimPriceFor(listings[0]?.window_amount ?? 0, true);
+  const take = claimPriceFor(listings[0]?.amount ?? 0, true);
+  const cover = catCover(req.params.slug);
+  const next = `/category/${esc(req.params.slug)}?board=${board}`;
   const tabs = [
-    ["all", "All-time"],
-    ["today", "Hoy"],
-    ["daily", "Diario"],
+    ["all", "Ranking"],
+    ["love", "Queridos"],
+    ["hate", "Hate"],
   ]
     .map(
       ([id, label]) =>
@@ -357,13 +467,15 @@ app.get("/category/:slug", (req, res) => {
   res.type("html").send(
     layout({
       title: cat?.name || req.params.slug,
+      nav: "cats",
       stats,
       body: `<p class="muted"><a href="/categories">Categorías</a> / ${esc(cat?.name || req.params.slug)}</p>
+        ${cover ? `<img class="cover" src="${cover}" alt=""/>` : ""}
         <h1>${esc(cat?.name || req.params.slug)}</h1>
-        <p class="muted">${esc(cat?.blurb || "")}</p>
-        <p><a class="btn" href="/claim?amount=${take}&category=${esc(req.params.slug)}">Reclamar #1 por ${money(take)}</a></p>
-        <div class="tabs">${tabs}</div>
-        ${listings.length ? rankArticles(listings) : `<p class="muted">Nadie en esta categoría todavía.</p>`}`,
+        <p class="lead">${esc(cat?.blurb || "")}</p>
+        <p style="margin-top:1rem"><a class="btn" href="/claim?amount=${take}&category=${esc(req.params.slug)}">Reclamar #1 por ${money(take)}</a></p>
+        <div class="modes" style="margin-top:1.2rem">${tabs}</div>
+        ${listings.length ? podiumHtml(listings, board) + rankArticles(listings.slice(3), board, next) : `<p class="muted">Nadie en esta categoría todavía.</p>`}`,
     }),
   );
 });
@@ -375,6 +487,7 @@ app.get("/creator/:slug", (req, res) => {
   const { listing, payments } = found;
   const cat = CATEGORY_MAP[listing.category_slug];
   const price = claimPriceFor(listing.amount, listing.rank === 1);
+  const next = `/creator/${listing.slug}`;
   const pays = payments
     .map((p) => `<li style="display:flex;justify-content:space-between"><span class="muted">${ago(p.created_at)}</span><span>${money(p.amount)}</span></li>`)
     .join("");
@@ -383,23 +496,29 @@ app.get("/creator/:slug", (req, res) => {
       title: listing.display_name,
       stats,
       body: `<p class="muted"><a href="/">Ranking</a> ${cat ? `/ <a href="/category/${listing.category_slug}">${esc(cat.name)}</a>` : ""}</p>
-        <p class="rank">#${listing.rank}</p>
-        <h1>${esc(listing.display_name)}</h1>
-        <p class="muted">${esc(listing.tagline)}</p>
-        <p class="price">${money(listing.amount)}</p>
-        <p>${esc(listing.description)}</p>
-        <p class="chips">
-          <span>${esc(listing.handle)}</span>
-          <span>${esc(COUNTRY_MAP[listing.country] || "")}</span>
-          <span>${esc(PLATFORM_MAP[listing.platform] || "")}</span>
-          <span>${num(listing.clicks)} clics</span>
-        </p>
-        <p>
-          ${listing.url ? `<a class="btn ghost" href="/go/${listing.slug}">Abrir perfil</a> ` : ""}
-          <a class="btn" href="/claim?amount=${price}&category=${listing.category_slug}&handle=${encodeURIComponent(listing.handle)}">Reclamar este puesto por ${money(price)}</a>
-        </p>
-        <h2>Pagos</h2>
-        <ul class="list">${pays}</ul>`,
+        <div class="profile">
+          <div>
+            <div class="profile-hero">
+              ${avatarHtml(listing.slug, listing.display_name)}
+              <div>
+                <p class="muted" style="margin:0;font-weight:700">#${listing.rank} · ${money(listing.amount)}</p>
+                <h1>${esc(listing.display_name)}</h1>
+                <p class="muted">${esc(listing.tagline)}</p>
+              </div>
+            </div>
+            <p style="margin-top:1rem">${esc(listing.description)}</p>
+            <p class="muted" style="margin-top:.6rem">${esc(listing.handle)} · ${esc(COUNTRY_MAP[listing.country] || "")} · ${esc(PLATFORM_MAP[listing.platform] || "")}</p>
+            <div style="margin-top:1rem">${voteForms(listing, next)}</div>
+            <p style="margin-top:1.1rem;display:flex;flex-wrap:wrap;gap:.5rem">
+              ${listing.url ? `<a class="btn ghost" href="/go/${listing.slug}">Abrir perfil</a>` : ""}
+              <a class="btn" href="/claim?amount=${price}&category=${listing.category_slug}&handle=${encodeURIComponent(listing.handle)}">Superar por ${money(price)}</a>
+            </p>
+          </div>
+          <div class="panel">
+            <h2>Pagos</h2>
+            <ul class="list">${pays}</ul>
+          </div>
+        </div>`,
     }),
   );
 });
@@ -409,6 +528,15 @@ app.get("/go/:slug", (req, res) => {
   if (!found?.listing?.url) return res.redirect("/");
   registerClick(req.params.slug);
   res.redirect(found.listing.url);
+});
+
+app.post("/vote", (req, res) => {
+  const slug = String(req.body.slug || "").slice(0, 64);
+  const kind = req.body.kind === "hate" ? "hate" : "love";
+  const nextRaw = String(req.body.next || "/");
+  const next = nextRaw.startsWith("/") && !nextRaw.startsWith("//") ? nextRaw : "/";
+  voteOn(slug, kind, req.voter);
+  res.redirect(303, next);
 });
 
 app.get("/claim", (req, res) => {
@@ -549,7 +677,7 @@ app.get("/about", (_req, res) => {
       title: "About",
       stats,
       body: `<h1>About</h1>
-        <p>podiosync.es es el ranking público de influencers de España y Latinoamérica donde el puesto es lo que pagas. Sin ads, sin API keys, sin revenue share.</p>
+        <p>podiosync.es es el ranking público de influencers de España y Latinoamérica. Tres tableros: el de pago (el puesto es lo que pagas), los más queridos y los de más hate.</p>
         <p>Las fichas de demostración son perfiles de ejemplo. En producción, cada creator, manager o marca reclama su propio @handle.</p>
         <div class="stats">
           <div><b>${money(stats.revenue)}</b>ingresos</div>
@@ -569,6 +697,8 @@ app.get("/faq", (_req, res) => {
       body: `<h1>FAQ</h1>
         <h2>¿Cómo funciona?</h2>
         <p class="muted">Pegas un @handle, eliges categoría y pagas. Mínimo $10. Quitar el #1 cuesta $5 más que el actual. A igual monto, gana quien llegó primero.</p>
+        <h2>¿Más queridos y más hate?</h2>
+        <p class="muted">Son tableros de voto del público, no de pago. Un voto por persona y creador. Puedes cambiar de querido a hate (o al revés). No hay reembolsos de votos.</p>
         <h2>¿All-time, Hoy y Diario?</h2>
         <p class="muted">Un pago cuenta en todos los tableros. All-time no caduca. Hoy es 24 h. Diario es el día UTC.</p>
         <h2>¿Hay reembolsos?</h2>
