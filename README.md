@@ -5,9 +5,11 @@ Dominio: [podiosync.es](https://podiosync.es)
 
 Misma mecánica que outbid.lol: pagas, subes. El #1 cuesta $5 más.
 
+**Deploy Hostinger (GitHub):** ver [HOSTINGER.md](./HOSTINGER.md)
+
 ## Stack
 
-- Node.js 18+ (ESM)
+- Node.js 20 (ESM)
 - Express
 - Stripe Checkout (opcional; sin clave corre en modo demo)
 - Persistencia JSON en `data/board.json`
@@ -21,25 +23,18 @@ PORT=3000 node server.js
 
 Abre http://localhost:3000
 
-## Hostinger
+## Hostinger + GitHub
 
-1. Plan con Node.js (Business, Cloud o VPS).
-2. Crea la app: startup file `server.js`, root la carpeta de este repo.
-3. `npm install --omit=dev` y Start.
-4. Variables (hPanel → Node.js → Environment):
+Repo: https://github.com/rakar22/podiosync
 
-| Variable | Valor |
-|---|---|
-| `PORT` | lo pone Hostinger |
-| `PUBLIC_URL` | `https://podiosync.es` |
-| `STRIPE_SECRET_KEY` | `sk_live_...` o `sk_test_...` |
-| `STRIPE_WEBHOOK_SECRET` | `whsec_...` |
-| `EMPTY_BOARD` | `true` el día del launch |
+1. hPanel → Añadir sitio → Node.js
+2. Import Git: `https://github.com/rakar22/podiosync`
+3. Express · rama `main` · Node 20 · raíz `./` · entry `server.js` · **sin build**
+4. `PUBLIC_URL=https://podiosync.es`
+5. Implementar
 
 Webhook Stripe: `https://podiosync.es/webhook/stripe`  
 Evento: `checkout.session.completed`
-
-Detalle paso a paso: [INSTALAR-HOSTINGER.txt](./INSTALAR-HOSTINGER.txt)
 
 ## Cómo funciona
 
@@ -47,15 +42,3 @@ Detalle paso a paso: [INSTALAR-HOSTINGER.txt](./INSTALAR-HOSTINGER.txt)
 - +$5 para quitar el #1.
 - Si ya estás en el ranking, solo se cobra la diferencia.
 - Tableros: all-time, últimas 24h, día UTC.
-
-## Estructura
-
-```
-server.js          Express + Stripe
-lib/store.js       ranking, pagos, seed
-lib/payments.js    Checkout + webhook
-lib/seed.js        roster de streamers / TikTok / LATAM
-lib/categories.js  nichos y países
-public/            CSS, icono, portadas
-data/              board.json (se crea solo, no se commitea)
-```

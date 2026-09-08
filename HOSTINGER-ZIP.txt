@@ -1,0 +1,28 @@
+SUBIR ESTE ZIP EN HOSTINGER
+===========================
+
+En hPanel: Sitios web → Añadir sitio → Node.js / Web App
+→ Subir archivo (no GitHub).
+
+Elige este zip. Ajustes:
+
+  Preajuste .............. Express
+  Versión Node ........... 20.x  (o 18.x)
+  Directorio raíz ........ ./
+  Archivo de entrada ..... server.js
+  Script de build ........ (vacío)
+  Directorio de salida ... (vacío)
+
+Variable de entorno:
+
+  PUBLIC_URL=https://podiosync.es
+
+Luego Implementar.
+
+Cuando termine, abre:
+  https://podiosync.es/health
+Debe devolver {"ok":true,...}
+
+Si el zip se descomprime en una carpeta extra
+(podiosync/server.js), pon el directorio raíz en esa carpeta
+o mueve server.js y package.json al nivel de arriba.
