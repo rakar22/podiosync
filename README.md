@@ -11,7 +11,7 @@ Misma mecánica que outbid.lol: pagas, subes. El #1 cuesta $5 más.
 
 - Node.js 20 (ESM)
 - Express
-- Strike invoices (Bitcoin Lightning, opcional; sin clave corre en modo demo)
+- Stripe Checkout (opcional; sin clave corre en modo demo)
 - Persistencia JSON en `data/board.json`
 
 ## Arrancar en local
@@ -34,22 +34,20 @@ Repo: https://github.com/rakar22/podiosync
 1. hPanel → Añadir sitio → Node.js
 2. Import Git: `https://github.com/rakar22/podiosync`
 3. Express · rama `main` · Node 20 · raíz `./` · entry `server.js` · **sin build**
-4. `PUBLIC_URL=https://podiosync.es`
+4. Variables:
+
+```
+PUBLIC_URL=https://podiosync.es
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+```
+
 5. Implementar
 
-Variables Strike (producción):
+Webhook Stripe: `https://podiosync.es/webhook/stripe`  
+Evento: `checkout.session.completed`
 
-```
-STRIKE_API_KEY=...
-STRIKE_WEBHOOK_SECRET=...   # 10–50 caracteres
-PUBLIC_URL=https://podiosync.es
-```
-
-Webhook Strike: `https://podiosync.es/webhook/strike`  
-Evento: `invoice.updated`  
-Firma: header `X-Webhook-Signature` (HMAC-SHA256 del body)
-
-Sandbox opcional: `STRIKE_API_BASE=https://api.dev.strike.me`
+Sin `STRIPE_SECRET_KEY` la app corre en modo demo (el ranking se actualiza sin cobro). Con la clave, Checkout cobra en USD y el puesto solo se asigna tras un pago verificado (`/paid?session_id=…` + webhook).
 
 ## Cómo funciona
 
@@ -57,4 +55,3 @@ Sandbox opcional: `STRIKE_API_BASE=https://api.dev.strike.me`
 - +$5 para quitar el #1.
 - Si ya estás en el ranking, solo se cobra la diferencia.
 - Tableros: all-time, últimas 24h, día UTC.
-- Con `STRIKE_API_KEY`, el cobro es una factura Strike en USD pagada por Lightning. Sin la clave, el modo demo actualiza el ranking **sin** fingir que Strike cobró.

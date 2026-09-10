@@ -10,9 +10,8 @@ Lee INSTALAR-HOSTINGER.txt para el paso a paso con capturas descritas.
 Qué es
 ------------------------------------------------
 Un tablero pay-to-rank. Un creator, manager o marca pega un @handle,
-elige categoría (TikTok, Twitch, belleza, fútbol…) y paga con Strike
-(Bitcoin Lightning). El ranking se ordena por lo pagado. Sin ads,
-sin revenue share.
+elige categoría (TikTok, Twitch, belleza, fútbol…) y paga. El ranking
+se ordena por lo pagado. Sin ads, sin API keys, sin revenue share.
 
 Nicho: influencers ES/LATAM. El original (outbid.lol) facturó cientos
 de miles de dólares en semanas rankeando SaaS. Aquí la palanca es ego
@@ -52,22 +51,20 @@ La app escucha process.env.PORT (Hostinger lo inyecta) en 0.0.0.0.
 ------------------------------------------------
 PORT                  lo pone Hostinger
 PUBLIC_URL            https://podiosync.es
-STRIKE_API_KEY        clave de dashboard.strike.me  (opcional)
-STRIKE_WEBHOOK_SECRET 10–50 caracteres              (opcional)
-EMPTY_BOARD           true                          (lanza el ranking vacío)
+STRIPE_SECRET_KEY     sk_live_... o sk_test_...  (opcional)
+STRIPE_WEBHOOK_SECRET whsec_...                  (opcional)
+EMPTY_BOARD           true                       (lanza el ranking vacío)
 
-SIN Strike la app corre en MODO DEMO: el ranking se actualiza sin cobro
-real. No se finge un pago de Strike. Perfecto para probar.
+SIN Stripe la app corre en MODO DEMO: el pago se simula y el ranking
+cambia al instante. Perfecto para probar.
 
-CON STRIKE_API_KEY el checkout crea una factura Strike en USD y abre
-/pay/<invoiceId> (QR Lightning). El puesto se reclama al volver a
-/paid?invoice_id=... (y otra vez, sin duplicar, cuando llega el webhook).
+CON STRIPE_SECRET_KEY el checkout abre Stripe. El puesto se reclama
+al volver a /paid (y otra vez, sin duplicar, cuando llega el webhook).
 PUBLIC_URL es recomendable; si falta, se toma del host de la petición.
 
-Webhook de Strike:
-  URL:  https://podiosync.es/webhook/strike
-  Evento: invoice.updated
-  Firma: X-Webhook-Signature (HMAC-SHA256)
+Webhook de Stripe:
+  URL:  https://podiosync.es/webhook/stripe
+  Evento: checkout.session.completed
 
 ------------------------------------------------
 3. Datos
