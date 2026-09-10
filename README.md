@@ -23,6 +23,10 @@ PORT=3000 node server.js
 
 Abre http://localhost:3000
 
+```bash
+npm test
+```
+
 ## Hostinger + GitHub
 
 Repo: https://github.com/rakar22/podiosync
@@ -30,11 +34,20 @@ Repo: https://github.com/rakar22/podiosync
 1. hPanel → Añadir sitio → Node.js
 2. Import Git: `https://github.com/rakar22/podiosync`
 3. Express · rama `main` · Node 20 · raíz `./` · entry `server.js` · **sin build**
-4. `PUBLIC_URL=https://podiosync.es`
+4. Variables:
+
+```
+PUBLIC_URL=https://podiosync.es
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+```
+
 5. Implementar
 
 Webhook Stripe: `https://podiosync.es/webhook/stripe`  
 Evento: `checkout.session.completed`
+
+Sin `STRIPE_SECRET_KEY` la app corre en modo demo (el ranking se actualiza sin cobro). Con la clave, Checkout cobra en USD y el puesto solo se asigna tras un pago verificado (`/paid?session_id=…` + webhook).
 
 ## Cómo funciona
 

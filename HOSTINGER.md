@@ -32,12 +32,14 @@ https://github.com/rakar22/podiosync
 PUBLIC_URL=https://podiosync.es
 ```
 
-Opcional Stripe:
+Opcional Stripe (cobrar de verdad):
 
 ```
-STRIPE_SECRET_KEY=sk_test_...
+STRIPE_SECRET_KEY=sk_live_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 ```
+
+Webhook: `https://podiosync.es/webhook/stripe` · evento `checkout.session.completed`
 
 6. **Implementar**
 

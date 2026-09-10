@@ -21,8 +21,6 @@ import {
   claimRank,
   claimPriceFor,
   putPending,
-  getPending,
-  fulfillPaid,
   quoteClaim,
   voteOn,
 } from "./lib/store.js";
@@ -31,15 +29,14 @@ import {
   stripeMode,
   originFrom,
   createCheckout,
-  retrieveSession,
   parseWebhook,
-  payloadFromMetadata,
-  sessionIsPaid,
+  confirmPaidSession,
+  webhookSecret,
 } from "./lib/payments.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
-const STRIPE_WH = process.env.STRIPE_WEBHOOK_SECRET || "";
+const STRIPE_WH = webhookSecret();
 
 const app = express();
 
@@ -65,10 +62,13 @@ app.use(
       const event = parseWebhook(req.body, req.headers["stripe-signature"]);
       if (event.type === "checkout.session.completed") {
         const session = event.data.object;
-        const claimId = session.client_reference_id;
-        const payload = getPending(claimId) || payloadFromMetadata(session.metadata);
-        if (payload && sessionIsPaid(session)) {
-          fulfillPaid(session.id, payload);
+        const result = await confirmPaidSession(session.id, session);
+        if (result.waiting) {
+          // still unpaid — ignore
+        } else if (result.missing) {
+          console.warn(`[stripe] session ${session.id} paid but claim payload missing`);
+        } else if (!result.ok && result.error) {
+          console.warn(`[stripe] session ${session.id}: ${result.error}`);
         }
       }
       res.json({ received: true });
@@ -561,8 +561,8 @@ app.get("/paid", async (req, res) => {
   if (!sessionId) return res.redirect("/");
   if (!stripeEnabled()) return res.redirect("/");
   try {
-    const session = await retrieveSession(sessionId);
-    if (!sessionIsPaid(session)) {
+    const result = await confirmPaidSession(sessionId);
+    if (result.waiting) {
       return res.type("html").send(
         layout({
           title: "Confirmando pago",
@@ -573,9 +573,7 @@ app.get("/paid", async (req, res) => {
         }),
       );
     }
-    const payload =
-      getPending(session.client_reference_id) || payloadFromMetadata(session.metadata);
-    if (!payload) {
+    if (result.missing) {
       return res.type("html").send(
         layout({
           title: "Pago recibido",
@@ -585,7 +583,6 @@ app.get("/paid", async (req, res) => {
         }),
       );
     }
-    const result = fulfillPaid(session.id, payload);
     if (!result.ok) {
       return res.type("html").send(
         layout({
