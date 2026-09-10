@@ -51,7 +51,7 @@ Estructura correcta:
 C. Instalar dependencias y arrancar
 ------------------------------------------------
 1. Vuelve a Node.js → tu app.
-2. Pulsa NPM Install. Espera a que termine (express + stripe).
+2. Pulsa NPM Install. Espera a que termine (express + qrcode).
 3. Start / Restart.
 
 Abre tu dominio. Deberías ver el ranking con ~45 creators de ejemplo
@@ -69,45 +69,51 @@ D. Variables de entorno
 Node.js → Environment variables. Añade:
 
   PUBLIC_URL=https://tu-dominio.com
-  STRIPE_SECRET_KEY=sk_test_...     (o sk_live_...)
-  STRIPE_WEBHOOK_SECRET=whsec_...
+  STRIKE_API_KEY=...                (dashboard.strike.me)
+  STRIKE_WEBHOOK_SECRET=...         (10–50 caracteres; openssl rand -hex 16)
   EMPTY_BOARD=true                  (cuando lances de verdad)
 
 Restart después de guardar.
 
 ------------------------------------------------
-E. Stripe (cobrar de verdad)
+E. Strike (cobrar de verdad)
 ------------------------------------------------
-Tu cuenta Stripe ya puede ser la de producción. Empieza SIEMPRE en test.
+Cobra en USD vía Bitcoin Lightning con la API de Strike (docs.strike.me).
 
-1. Dashboard Stripe → Developers → API keys.
-   Copia la Secret key de TEST (sk_test_...).
+1. Entra en https://dashboard.strike.me → API Keys.
+   Crea una clave con scopes:
+     partner.invoice.read
+     partner.invoice.create
+     partner.invoice.quote.generate
+     partner.webhooks.manage   (opcional, registro automático del webhook)
 2. hPanel → Node.js → Environment:
-     STRIPE_SECRET_KEY=sk_test_...
+     STRIKE_API_KEY=...
+     STRIKE_WEBHOOK_SECRET=...     (10–50 caracteres)
      PUBLIC_URL=https://tu-dominio.com
-3. Restart. El header debe decir "Stripe test".
-4. Reclama un puesto. Te manda a checkout.stripe.com.
-   Tarjeta: 4242 4242 4242 4242 · fecha futura · CVC 123
-5. Al volver, caes en /paid?session_id=cs_... y el ranking se actualiza
-   AUNQUE el webhook todavía no esté. El webhook es el respaldo.
+3. Restart. El footer debe decir "Strike · Bitcoin Lightning".
+4. Reclama un puesto. Te manda a /pay/<invoiceId> con QR Lightning
+   y un enlace para abrir Strike. Paga con una wallet Lightning
+   (o la app Strike). Al confirmar, caes en /paid?invoice_id=...
+   y el ranking se actualiza AUNQUE el webhook todavía no esté.
+   El webhook es el respaldo.
 
 Webhook (recomendado, no bloquea el cobro):
-  Developers → Webhooks → Add endpoint
-  URL:     https://tu-dominio.com/webhook/stripe
-  Evento:  checkout.session.completed
-  Copia el Signing secret (whsec_...) a STRIPE_WEBHOOK_SECRET y Restart.
+  URL:     https://tu-dominio.com/webhook/strike
+  Evento:  invoice.updated
+  Secret:  el mismo STRIKE_WEBHOOK_SECRET (firma HMAC-SHA256,
+           header X-Webhook-Signature)
 
-Cuando el test funcione:
-  - cambia STRIPE_SECRET_KEY a sk_live_...
-  - crea el webhook en modo Live
-  - el header dirá "Stripe · pagos reales"
+Si PUBLIC_URL y el secret están, la app intenta crear la suscripción
+sola al arrancar. Si falla, créala en el dashboard de Strike.
 
-GET /health debe devolver { "ok": true, "stripe": "test"|"live", "webhook": true }
+Sandbox (dinero de prueba):
+  STRIKE_API_BASE=https://api.dev.strike.me
+  y una API key de https://dev.dashboard.strike.me
 
-Sin estas claves la app sigue viva en modo demo. No se rompe.
+GET /health debe devolver { "ok": true, "strike": "test"|"live", "webhook": true }
 
-Tu cuenta conectada: utilix.cloud. Usa sk_test_ para las pruebas;
-sk_live_ cobra dinero de verdad.
+Sin STRIKE_API_KEY la app sigue viva en modo demo. El ranking se
+actualiza sin cobro; no se finge un pago de Strike.
 
 ------------------------------------------------
 F. Lanzar el ranking vacío (producción)

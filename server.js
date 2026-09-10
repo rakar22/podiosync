@@ -20,26 +20,29 @@ import {
   categorySummaries,
   claimRank,
   claimPriceFor,
-  putPending,
-  getPending,
-  fulfillPaid,
   quoteClaim,
   voteOn,
 } from "./lib/store.js";
 import {
-  stripeEnabled,
-  stripeMode,
+  strikeEnabled,
+  strikeMode,
   originFrom,
-  createCheckout,
-  retrieveSession,
+  createPayment,
+  retrieveInvoice,
+  quoteInvoice,
   parseWebhook,
-  payloadFromMetadata,
-  sessionIsPaid,
+  invoiceIsPaid,
+  confirmPaidClaim,
+  qrSvg,
+  strikePayUrl,
+  webhookSecret,
+  ensureWebhookSubscription,
+  newClaimId,
 } from "./lib/payments.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
-const STRIPE_WH = process.env.STRIPE_WEBHOOK_SECRET || "";
+const STRIKE_WH = webhookSecret();
 
 const app = express();
 
@@ -50,25 +53,31 @@ app.get("/favicon.svg", (_req, res) => {
 app.get("/health", (_req, res) =>
   res.json({
     ok: true,
-    stripe: stripeMode(),
-    webhook: Boolean(STRIPE_WH),
+    strike: strikeMode(),
+    webhook: Boolean(STRIKE_WH),
   }),
 );
 app.use("/public", express.static(path.join(__dirname, "public")));
 app.use(
-  "/webhook/stripe",
+  "/webhook/strike",
   express.raw({ type: "application/json" }),
   async (req, res) => {
-    if (!stripeEnabled()) return res.status(400).json({ error: "Stripe no configurado" });
-    if (!STRIPE_WH) return res.status(400).json({ error: "Falta STRIPE_WEBHOOK_SECRET" });
+    if (!strikeEnabled()) return res.status(400).json({ error: "Strike no configurado" });
+    if (!STRIKE_WH) return res.status(400).json({ error: "Falta STRIKE_WEBHOOK_SECRET" });
     try {
-      const event = parseWebhook(req.body, req.headers["stripe-signature"]);
-      if (event.type === "checkout.session.completed") {
-        const session = event.data.object;
-        const claimId = session.client_reference_id;
-        const payload = getPending(claimId) || payloadFromMetadata(session.metadata);
-        if (payload && sessionIsPaid(session)) {
-          fulfillPaid(session.id, payload);
+      const event = parseWebhook(req.body, req.headers["x-webhook-signature"]);
+      const type = event.eventType || event.type;
+      if (type === "invoice.updated") {
+        const invoiceId = event.data?.entityId;
+        if (invoiceId) {
+          const result = await confirmPaidClaim(invoiceId);
+          if (result.waiting) {
+            // still UNPAID / PENDING — ignore
+          } else if (result.missing) {
+            console.warn(`[strike] invoice ${invoiceId} PAID but claim payload missing`);
+          } else if (!result.ok && result.error) {
+            console.warn(`[strike] invoice ${invoiceId}: ${result.error}`);
+          }
         }
       }
       res.json({ received: true });
@@ -90,11 +99,10 @@ app.use((req, res, next) => {
   next();
 });
 
-function stripeBadge() {
-  const m = stripeMode();
-  if (m === "live") return "Stripe · pagos reales";
-  if (m === "test") return "Stripe test";
-  if (m === "on") return "Stripe";
+function strikeBadge() {
+  const m = strikeMode();
+  if (m === "live") return "Strike · Bitcoin Lightning";
+  if (m === "test") return "Strike sandbox";
   return "modo demo";
 }
 function money(n) {
@@ -172,7 +180,7 @@ function layout({ title, stats, body, flash, nav = "rank" }) {
       <div><b>${num(stats.visitors)}</b>visitas</div>
       <div><b>${num(stats.online)}</b>online ahora</div>
     </div>
-    <p style="margin-top:1.4rem"><a href="/about">About</a> · <a href="/faq">FAQ</a> · <a href="/rules">Reglas</a> · ${esc(stripeBadge())}</p>
+    <p style="margin-top:1.4rem"><a href="/about">About</a> · <a href="/faq">FAQ</a> · <a href="/rules">Reglas</a> · ${esc(strikeBadge())}</p>
   </div></footer>
   <div class="tabbar"><nav>
     <a href="/" class="${nav === "rank" ? "on" : ""}">Ranking</a>
@@ -302,7 +310,7 @@ function claimForm({ amount, category, handle, error }) {
     (p) => `<option value="${p.id}">${esc(p.name)}</option>`,
   ).join("");
   return `<h1>Reclamar un puesto</h1>
-    <p class="muted">${stripeEnabled() ? "El pago se cobra con Stripe Checkout. El puesto se reclama al confirmar." : "Modo demo: el pago se simula. Pon STRIPE_SECRET_KEY para cobrar de verdad."}</p>
+    <p class="muted">${strikeEnabled() ? "El pago se cobra con Strike (Bitcoin Lightning) en USD. El puesto se reclama al confirmar." : "Modo demo: no hay STRIKE_API_KEY. El ranking se actualiza sin cobro real — no es un pago de Strike."}</p>
     ${error ? `<p class="err">${esc(error)}</p>` : ""}
     <form method="post" action="/claim" class="panel" style="margin-top:1rem;display:grid;gap:.75rem">
       <label>@handle o URL<input class="field" name="handle" required value="${esc(handle || "")}" placeholder="@lunavarela"/></label>
@@ -322,7 +330,7 @@ function claimForm({ amount, category, handle, error }) {
           <button type="button" class="stepper" data-delta="1">+</button>
         </div>
       </label>
-      <button class="btn wide" type="submit">${stripeEnabled() ? "Pagar con Stripe y reclamar" : "Pagar y reclamar el puesto"}</button>
+      <button class="btn wide" type="submit">${strikeEnabled() ? "Pagar con Strike y reclamar" : "Reclamar en modo demo (sin cobro)"}</button>
     </form>
     <script>
       document.querySelectorAll("[data-delta]").forEach((b) => {
@@ -555,45 +563,192 @@ app.get("/claim", (req, res) => {
   );
 });
 
+function payPage({ invoice, quote, qr, error, stats }) {
+  const invoiceId = invoice?.invoiceId || "";
+  const amount = invoice?.amount?.amount || "";
+  const currency = invoice?.amount?.currency || "USD";
+  const ln = quote?.lnInvoice || "";
+  const expiration = quote?.expiration || "";
+  const strikeUrl = invoiceId ? strikePayUrl(invoiceId) : "";
+  const lightningHref = ln ? `lightning:${ln}` : "";
+  return layout({
+    title: "Pagar con Strike",
+    stats,
+    nav: "claim",
+    body: `<h1>Pagar con Strike</h1>
+      <p class="muted">Bitcoin Lightning · importe en ${esc(currency)}. El puesto se reclama cuando Strike marque la factura como pagada.</p>
+      ${error ? `<p class="err">${esc(error)}</p>` : ""}
+      <div class="panel pay-box" style="margin-top:1rem">
+        <p class="muted" style="margin:0;font-size:.8rem;font-weight:700">Importe</p>
+        <p class="pay-amount">${esc(amount ? `$${amount}` : "—")} <span class="muted">${esc(currency)}</span></p>
+        ${qr ? `<div class="pay-qr" id="pay-qr">${qr}</div>` : ""}
+        <p class="muted" id="pay-status">${quote?.error ? esc(quote.error) : expiration ? `La factura Lightning caduca pronto. Si expira, se genera otra automáticamente.` : "Generando factura Lightning…"}</p>
+        ${ln ? `<p class="ln-box" id="ln-box">${esc(ln)}</p>` : `<p class="ln-box" id="ln-box" hidden></p>`}
+        <div class="hero-actions" style="margin-top:1rem">
+          ${lightningHref ? `<a class="btn" id="ln-open" href="${esc(lightningHref)}">Abrir wallet Lightning</a>` : `<a class="btn" id="ln-open" hidden href="#">Abrir wallet Lightning</a>`}
+          ${strikeUrl ? `<a class="btn ghost" href="${esc(strikeUrl)}">Abrir en Strike</a>` : ""}
+          <button class="btn ghost" type="button" id="ln-copy">Copiar invoice</button>
+        </div>
+        <p style="margin-top:1.1rem"><a href="/claim?canceled=1">Cancelar</a></p>
+      </div>
+      <script>
+        const invoiceId = ${JSON.stringify(invoiceId)};
+        let lnInvoice = ${JSON.stringify(ln)};
+        let expiration = ${JSON.stringify(expiration)};
+        const statusEl = document.getElementById("pay-status");
+        const qrEl = document.getElementById("pay-qr");
+        const boxEl = document.getElementById("ln-box");
+        const openEl = document.getElementById("ln-open");
+        const copyEl = document.getElementById("ln-copy");
+        function setQuote(q) {
+          if (!q) return;
+          if (q.error) { statusEl.textContent = q.error; return; }
+          lnInvoice = q.lnInvoice || lnInvoice;
+          expiration = q.expiration || expiration;
+          if (q.qr && qrEl) qrEl.innerHTML = q.qr;
+          if (lnInvoice && boxEl) {
+            boxEl.hidden = false;
+            boxEl.textContent = lnInvoice;
+          }
+          if (lnInvoice && openEl) {
+            openEl.hidden = false;
+            openEl.href = "lightning:" + lnInvoice;
+          }
+        }
+        async function refreshQuote() {
+          const res = await fetch("/pay/" + encodeURIComponent(invoiceId) + "/quote", { method: "POST" });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "No se pudo renovar la factura");
+          setQuote(data);
+        }
+        async function poll() {
+          if (!invoiceId) return;
+          const res = await fetch("/pay/" + encodeURIComponent(invoiceId) + "/status");
+          const data = await res.json();
+          if (data.redirect) { location.href = data.redirect; return; }
+          if (data.state) statusEl.textContent = data.state === "UNPAID"
+            ? "Esperando el pago Lightning…"
+            : "Estado: " + data.state;
+          const expired = expiration && Date.parse(expiration) < Date.now() + 2000;
+          if (!lnInvoice || expired) {
+            try { await refreshQuote(); } catch (err) { statusEl.textContent = err.message; }
+          }
+        }
+        copyEl?.addEventListener("click", async () => {
+          if (!lnInvoice) return;
+          try { await navigator.clipboard.writeText(lnInvoice); copyEl.textContent = "Copiado"; }
+          catch { copyEl.textContent = "Copia el texto de abajo"; }
+        });
+        setInterval(poll, 2500);
+        poll();
+      </script>`,
+  });
+}
+
+app.get("/pay/:invoiceId/status", async (req, res) => {
+  if (!strikeEnabled()) return res.status(400).json({ error: "Strike no configurado" });
+  try {
+    const invoice = await retrieveInvoice(req.params.invoiceId);
+    const paid = invoiceIsPaid(invoice);
+    res.json({
+      state: invoice.state,
+      paid,
+      redirect: paid ? `/paid?invoice_id=${encodeURIComponent(invoice.invoiceId)}` : null,
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/pay/:invoiceId/quote", async (req, res) => {
+  if (!strikeEnabled()) return res.status(400).json({ error: "Strike no configurado" });
+  try {
+    const invoice = await retrieveInvoice(req.params.invoiceId);
+    if (invoiceIsPaid(invoice)) {
+      return res.json({
+        paid: true,
+        redirect: `/paid?invoice_id=${encodeURIComponent(invoice.invoiceId)}`,
+      });
+    }
+    const quote = await quoteInvoice(invoice.invoiceId);
+    const qr = quote.lnInvoice ? await qrSvg(quote.lnInvoice) : "";
+    res.json({
+      lnInvoice: quote.lnInvoice || "",
+      expiration: quote.expiration || "",
+      qr,
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get("/pay/:invoiceId", async (req, res) => {
+  const stats = getStats();
+  if (!strikeEnabled()) return res.redirect("/claim");
+  try {
+    const invoice = await retrieveInvoice(req.params.invoiceId);
+    if (invoiceIsPaid(invoice)) {
+      return res.redirect(303, `/paid?invoice_id=${encodeURIComponent(invoice.invoiceId)}`);
+    }
+    let quote = null;
+    try {
+      quote = await quoteInvoice(invoice.invoiceId);
+    } catch (err) {
+      quote = { error: err.message };
+    }
+    const qr = quote?.lnInvoice ? await qrSvg(quote.lnInvoice) : "";
+    res.type("html").send(payPage({ invoice, quote, qr, stats }));
+  } catch (err) {
+    res.status(400).type("html").send(
+      layout({
+        title: "Pago",
+        stats,
+        nav: "claim",
+        body: `<h1>No se pudo abrir el pago</h1><p class="err">${esc(err.message)}</p><p><a class="btn" href="/claim">Volver</a></p>`,
+      }),
+    );
+  }
+});
+
 app.get("/paid", async (req, res) => {
   const stats = getStats();
-  const sessionId = String(req.query.session_id || "");
-  if (!sessionId) return res.redirect("/");
-  if (!stripeEnabled()) return res.redirect("/");
+  const invoiceId = String(req.query.invoice_id || req.query.invoiceId || "");
+  if (!invoiceId) return res.redirect("/");
+  if (!strikeEnabled()) return res.redirect("/");
   try {
-    const session = await retrieveSession(sessionId);
-    if (!sessionIsPaid(session)) {
+    const result = await confirmPaidClaim(invoiceId);
+    if (result.waiting) {
       return res.type("html").send(
         layout({
           title: "Confirmando pago",
           stats,
+          nav: "claim",
           body: `<h1>Confirmando el pago</h1>
-            <p class="muted">Stripe todavía no marcó este pago como cobrado. Recarga en unos segundos.</p>
-            <p><a class="btn" href="/paid?session_id=${esc(sessionId)}">Reintentar</a></p>`,
+            <p class="muted">Strike todavía no marcó esta factura como cobrada. Recarga en unos segundos.</p>
+            <p><a class="btn" href="/paid?invoice_id=${esc(invoiceId)}">Reintentar</a></p>`,
         }),
       );
     }
-    const payload =
-      getPending(session.client_reference_id) || payloadFromMetadata(session.metadata);
-    if (!payload) {
+    if (result.missing) {
       return res.type("html").send(
         layout({
           title: "Pago recibido",
           stats,
+          nav: "claim",
           body: `<h1>Pago recibido</h1>
-            <p class="muted">Stripe cobró, pero no encontramos la ficha. Escribe a soporte con el id ${esc(sessionId)}.</p>`,
+            <p class="muted">Strike cobró, pero no encontramos la ficha. Escribe a soporte con el id ${esc(invoiceId)}.</p>`,
         }),
       );
     }
-    const result = fulfillPaid(session.id, payload);
     if (!result.ok) {
       return res.type("html").send(
         layout({
           title: "Pago recibido",
           stats,
+          nav: "claim",
           body: `<h1>Pago recibido</h1>
             <p class="err">${esc(result.error)}</p>
-            <p class="muted">El cobro está en Stripe. Id ${esc(sessionId)}.</p>`,
+            <p class="muted">El cobro está en Strike. Id ${esc(invoiceId)}.</p>`,
         }),
       );
     }
@@ -603,6 +758,7 @@ app.get("/paid", async (req, res) => {
       layout({
         title: "Pago",
         stats,
+        nav: "claim",
         body: `<h1>No se pudo confirmar</h1><p class="err">${esc(err.message)}</p>`,
       }),
     );
@@ -627,30 +783,30 @@ app.post("/claim", async (req, res) => {
       layout({
         title: "Reclamar",
         stats,
+        nav: "claim",
         body: claimForm({ ...req.body, amount: req.body.targetTotal, error: quoted.error }),
       }),
     );
   }
   const payload = quoted.payload;
-  if (stripeEnabled()) {
+  if (strikeEnabled()) {
     try {
       const origin = originFrom(req);
       if (!origin) throw new Error("Falta PUBLIC_URL (o el host de la petición).");
-      const id = `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      putPending(id, payload, { charged: quoted.charged });
-      const session = await createCheckout({
+      const id = newClaimId();
+      const { invoice } = await createPayment({
         claimId: id,
         payload,
         charged: quoted.charged,
-        origin,
       });
-      return res.redirect(303, session.url);
+      return res.redirect(303, `/pay/${encodeURIComponent(invoice.invoiceId)}`);
     } catch (err) {
       const stats = getStats();
       return res.status(400).type("html").send(
         layout({
           title: "Reclamar",
           stats,
+          nav: "claim",
           body: claimForm({ ...payload, amount: payload.targetTotal, error: err.message }),
         }),
       );
@@ -663,6 +819,7 @@ app.post("/claim", async (req, res) => {
       layout({
         title: "Reclamar",
         stats,
+        nav: "claim",
         body: claimForm({ ...payload, amount: payload.targetTotal, error: result.error }),
       }),
     );
@@ -704,7 +861,7 @@ app.get("/faq", (_req, res) => {
         <h2>¿Hay reembolsos?</h2>
         <p class="muted">No. Pagos finales.</p>
         <h2>¿El pago es real?</h2>
-        <p class="muted">${stripeEnabled() ? "Sí. Stripe Checkout. El puesto se asigna al confirmar el pago (página de éxito + webhook)." : "En esta instalación corre en modo demo. Añade STRIPE_SECRET_KEY para cobrar."}</p>`
+        <p class="muted">${strikeEnabled() ? "Sí. Strike (Bitcoin Lightning) en USD. El puesto se asigna al confirmar el pago (página de éxito + webhook)." : "En esta instalación corre en modo demo: no hay STRIKE_API_KEY, así que el ranking se actualiza sin cobro. Añade la clave para cobrar de verdad con Strike."}</p>`
     }),
   );
 });
@@ -721,7 +878,7 @@ app.get("/rules", (_req, res) => {
           <li>Fichas nuevas: dólares enteros, mínimo $10, máximo $999,999.</li>
           <li>Quitar el #1: al menos $5 más que el actual.</li>
           <li>A igual monto, se queda arriba quien llegó primero.</li>
-          <li>Si ya estás, el checkout solo cobra la diferencia.</li>
+          <li>Si ya estás, Strike solo cobra la diferencia.</li>
           <li>Un @handle es una sola ficha.</li>
         </ul>`,
     }),
@@ -730,4 +887,15 @@ app.get("/rules", (_req, res) => {
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`podiosync listening on 0.0.0.0:${PORT}`);
+  const publicUrl = (process.env.PUBLIC_URL || "").replace(/\/$/, "");
+  if (strikeEnabled() && publicUrl && STRIKE_WH) {
+    ensureWebhookSubscription(publicUrl).then((info) => {
+      if (info?.created) console.log("[strike] webhook invoice.updated registrado");
+      else if (info?.existing) console.log("[strike] webhook ya existía");
+    }).catch((err) => {
+      console.warn(`[strike] no se pudo registrar el webhook: ${err.message}`);
+    });
+  } else if (strikeEnabled() && !STRIKE_WH) {
+    console.warn("[strike] STRIKE_API_KEY está, pero falta STRIKE_WEBHOOK_SECRET. El retorno a /paid sigue funcionando.");
+  }
 });
