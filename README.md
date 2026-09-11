@@ -45,7 +45,7 @@ STRIPE_WEBHOOK_SECRET=whsec_...
 5. Implementar
 
 Webhook Stripe: `https://podiosync.es/webhook/stripe`  
-Evento: `checkout.session.completed`
+Eventos: `checkout.session.completed`, `checkout.session.async_payment_succeeded`
 
 Sin `STRIPE_SECRET_KEY` la app corre en modo demo (el ranking se actualiza sin cobro). Con la clave, Checkout cobra en USD y el puesto solo se asigna tras un pago verificado (`/paid?session_id=…` + webhook).
 

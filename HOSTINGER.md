@@ -39,7 +39,8 @@ STRIPE_SECRET_KEY=sk_live_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 ```
 
-Webhook: `https://podiosync.es/webhook/stripe` · evento `checkout.session.completed`
+Webhook: `https://podiosync.es/webhook/stripe`  
+Eventos: `checkout.session.completed`, `checkout.session.async_payment_succeeded`
 
 6. **Implementar**
 

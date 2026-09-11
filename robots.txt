@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /paid
+Disallow: /webhook
+Sitemap: https://podiosync.es/sitemap.xml

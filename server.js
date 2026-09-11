@@ -21,8 +21,10 @@ import {
   claimRank,
   claimPriceFor,
   putPending,
+  takePending,
   quoteClaim,
   voteOn,
+  formatUsd,
 } from "./lib/store.js";
 import {
   stripeEnabled,
@@ -32,11 +34,12 @@ import {
   parseWebhook,
   confirmPaidSession,
   webhookSecret,
+  publicPaymentError,
+  FULFILL_EVENT_TYPES,
 } from "./lib/payments.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
-const STRIPE_WH = webhookSecret();
 
 const app = express();
 
@@ -44,23 +47,47 @@ app.set("trust proxy", true);
 app.get("/favicon.svg", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "favicon.svg"));
 });
+function siteOrigin() {
+  return (process.env.PUBLIC_URL || "https://podiosync.es").replace(/\/$/, "");
+}
 app.get("/health", (_req, res) =>
   res.json({
     ok: true,
     stripe: stripeMode(),
-    webhook: Boolean(STRIPE_WH),
+    webhook: Boolean(webhookSecret()),
   }),
 );
+app.get("/robots.txt", (_req, res) => {
+  res
+    .type("text/plain; charset=utf-8")
+    .set("Cache-Control", "public, max-age=300")
+    .send(
+      `User-agent: *\nAllow: /\nDisallow: /paid\nDisallow: /webhook\nSitemap: ${siteOrigin()}/sitemap.xml\n`,
+    );
+});
+app.get("/sitemap.xml", (_req, res) => {
+  const origin = siteOrigin();
+  const urls = ["/", "/categories", "/claim", "/about", "/faq", "/rules"].concat(
+    CATEGORIES.map((c) => `/category/${c.slug}`),
+  );
+  res
+    .type("application/xml")
+    .send(
+      `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls
+        .map((u) => `  <url><loc>${origin}${u}</loc></url>`)
+        .join("\n")}\n</urlset>\n`,
+    );
+});
 app.use("/public", express.static(path.join(__dirname, "public")));
 app.use(
   "/webhook/stripe",
   express.raw({ type: "application/json" }),
   async (req, res) => {
     if (!stripeEnabled()) return res.status(400).json({ error: "Stripe no configurado" });
-    if (!STRIPE_WH) return res.status(400).json({ error: "Falta STRIPE_WEBHOOK_SECRET" });
+    if (!webhookSecret()) return res.status(400).json({ error: "Falta STRIPE_WEBHOOK_SECRET" });
     try {
       const event = parseWebhook(req.body, req.headers["stripe-signature"]);
-      if (event.type === "checkout.session.completed") {
+      if (FULFILL_EVENT_TYPES.has(event.type)) {
         const session = event.data.object;
         const result = await confirmPaidSession(session.id, session);
         if (result.waiting) {
@@ -73,7 +100,12 @@ app.use(
       }
       res.json({ received: true });
     } catch (err) {
-      res.status(400).send(`Webhook error: ${err.message}`);
+      const msg = String(err.message || err);
+      if (/Webhook error|No signatures found|signature/i.test(msg)) {
+        return res.status(400).send(`Webhook error: ${msg}`);
+      }
+      console.warn(`[stripe] webhook failed: ${msg}`);
+      return res.status(500).send(`Webhook error: ${msg}`);
     }
   },
 );
@@ -85,7 +117,10 @@ app.use((req, res, next) => {
   req.voter = found ? decodeURIComponent(found[1]) : "";
   if (!req.voter) {
     req.voter = `v_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-    res.append("Set-Cookie", `psvid=${encodeURIComponent(req.voter)}; Path=/; Max-Age=31536000; SameSite=Lax`);
+    res.append(
+      "Set-Cookie",
+      `psvid=${encodeURIComponent(req.voter)}; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly`,
+    );
   }
   next();
 });
@@ -98,11 +133,7 @@ function stripeBadge() {
   return "modo demo";
 }
 function money(n) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(Number(n) || 0);
+  return formatUsd(n);
 }
 function num(n) {
   return new Intl.NumberFormat("es-ES").format(Number(n) || 0);
@@ -131,17 +162,29 @@ function compact(n) {
   return num(v);
 }
 
-function layout({ title, stats, body, flash, nav = "rank" }) {
+function layout({ title, stats, body, flash, nav = "rank", path = "/" }) {
+  const origin = siteOrigin();
+  const canonical = `${origin}${path.startsWith("/") ? path : `/${path}`}`;
+  const desc =
+    "El ranking público de influencers de España y Latinoamérica. Paga para subir. Vota a los más queridos y a los que más hate tienen.";
   return `<!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>${esc(title)} · PodioSync</title>
-  <meta name="description" content="El ranking público de influencers de España y Latinoamérica. Paga para subir. Vota a los más queridos y a los que más hate tienen."/>
-  <meta property="og:title" content="PodioSync"/>
+  <meta name="description" content="${esc(desc)}"/>
+  <link rel="canonical" href="${esc(canonical)}"/>
+  <meta property="og:site_name" content="PodioSync"/>
+  <meta property="og:title" content="${esc(title)} · PodioSync"/>
   <meta property="og:description" content="Influencers ES/LATAM. Ranking de pago, más queridos y más hate."/>
-  <meta property="og:image" content="/public/og.jpg"/>
+  <meta property="og:type" content="website"/>
+  <meta property="og:url" content="${esc(canonical)}"/>
+  <meta property="og:image" content="${esc(origin)}/public/og.jpg"/>
+  <meta name="twitter:card" content="summary_large_image"/>
+  <meta name="twitter:title" content="${esc(title)} · PodioSync"/>
+  <meta name="twitter:description" content="Influencers ES/LATAM. Ranking de pago, más queridos y más hate."/>
+  <meta name="twitter:image" content="${esc(origin)}/public/og.jpg"/>
   <meta name="theme-color" content="#F4F4F6"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <link rel="icon" href="/public/favicon.svg"/>
@@ -152,7 +195,11 @@ function layout({ title, stats, body, flash, nav = "rank" }) {
   <header><div class="wrap">
     <div class="top">
       <a class="wordmark" href="/">Podio<span>Sync</span></a>
-      <nav>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+        <span class="nav-toggle-bars" aria-hidden="true"></span>
+        <span class="sr-only">Menú</span>
+      </button>
+      <nav id="site-nav">
         <a class="${nav === "rank" ? "on" : ""}" href="/">Ranking</a>
         <a class="${nav === "love" ? "on" : ""}" href="/?board=love">Queridos</a>
         <a class="${nav === "hate" ? "on" : ""}" href="/?board=hate">Hate</a>
@@ -180,6 +227,23 @@ function layout({ title, stats, body, flash, nav = "rank" }) {
     <a href="/?board=hate" class="${nav === "hate" ? "on" : ""}">Hate</a>
     <a href="/claim" class="${nav === "claim" ? "on" : ""}">Reclamar</a>
   </nav></div>
+  <script>
+    (function () {
+      const btn = document.querySelector(".nav-toggle");
+      const nav = document.getElementById("site-nav");
+      if (!btn || !nav) return;
+      function setOpen(on) {
+        nav.classList.toggle("open", on);
+        btn.setAttribute("aria-expanded", on ? "true" : "false");
+        document.body.classList.toggle("nav-open", on);
+      }
+      btn.addEventListener("click", () => setOpen(!nav.classList.contains("open")));
+      nav.querySelectorAll("a").forEach((a) => a.addEventListener("click", () => setOpen(false)));
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") setOpen(false);
+      });
+    })();
+  </script>
 </body></html>`;
 }
 
@@ -220,7 +284,7 @@ function voteForms(listing, next = "/") {
 function scoreLabel(listing, board) {
   if (board === "love") return `♥ ${compact(listing.love)}`;
   if (board === "hate") return `✕ ${compact(listing.hate)}`;
-  return money(listing.window_amount || listing.amount);
+  return money(listing.window_amount ?? listing.amount);
 }
 
 function rankArticles(listings, board = "all", next = "/") {
@@ -232,12 +296,10 @@ function rankArticles(listings, board = "all", next = "/") {
         ${avatarHtml(l.slug, l.display_name)}
         <div class="row-main">
           <h2><a href="/creator/${esc(l.slug)}">${esc(l.display_name)}</a></h2>
-          <p class="muted" style="font-size:.8rem">${esc(l.handle)}${cat ? ` · ${esc(cat.name)}` : ""}</p>
-        </div>
-        <div style="text-align:right;display:grid;gap:.25rem;justify-items:end">
-          <p class="price">${scoreLabel(l, board)}</p>
+          <p class="muted">${esc(l.handle)}${cat ? ` · ${esc(cat.name)}` : ""}</p>
           ${voteForms(l, next)}
         </div>
+        <p class="price">${scoreLabel(l, board)}</p>
       </article>`;
     })
     .join("")}</div>`;
@@ -291,47 +353,146 @@ function categoryChips(active) {
   return `<div class="chips">${links.join("")}</div>`;
 }
 
-function claimForm({ amount, category, handle, error }) {
+function claimForm({
+  amount,
+  category,
+  handle,
+  displayName,
+  tagline,
+  description,
+  url,
+  country,
+  platform,
+  error,
+}) {
   const cats = CATEGORIES.map(
     (c) => `<option value="${c.slug}" ${c.slug === category ? "selected" : ""}>${esc(c.name)}</option>`,
   ).join("");
   const countries = COUNTRIES.map(
-    (c) => `<option value="${c.code}">${esc(c.name)}</option>`,
+    (c) => `<option value="${c.code}" ${c.code === country ? "selected" : ""}>${esc(c.name)}</option>`,
   ).join("");
   const platforms = PLATFORMS.map(
-    (p) => `<option value="${p.id}">${esc(p.name)}</option>`,
+    (p) => `<option value="${p.id}" ${p.id === platform ? "selected" : ""}>${esc(p.name)}</option>`,
   ).join("");
+  const total = Number.isFinite(Number(amount)) ? Math.round(Number(amount)) : 10;
+  const shown = money(total);
   return `<h1>Reclamar un puesto</h1>
     <p class="muted">${stripeEnabled() ? "El pago se cobra con Stripe Checkout. El puesto se reclama al confirmar." : "Modo demo: el pago se simula. Pon STRIPE_SECRET_KEY para cobrar de verdad."}</p>
-    ${error ? `<p class="err">${esc(error)}</p>` : ""}
-    <form method="post" action="/claim" class="panel" style="margin-top:1rem;display:grid;gap:.75rem">
-      <label>@handle o URL<input class="field" name="handle" required value="${esc(handle || "")}" placeholder="@lunavarela"/></label>
-      <label>Nombre<input class="field" name="displayName" required placeholder="Luna Varela"/></label>
-      <label>Tagline<input class="field" name="tagline" placeholder="glow sin filtro"/></label>
-      <label>Bio corta<textarea name="description" rows="3" placeholder="Qué haces, desde dónde."></textarea></label>
-      <label>Link público<input class="field" name="url" type="url" placeholder="https://instagram.com/…"/></label>
+    ${error ? `<p class="err" id="claim-error">${esc(error)}</p>` : `<p class="err" id="claim-error" hidden></p>`}
+    <form method="post" action="/claim" class="panel" style="margin-top:1rem;display:grid;gap:.75rem" id="claim-form" novalidate>
+      <label>@handle o URL
+        <input class="field" name="handle" required minlength="2" maxlength="80" value="${esc(handle || "")}" placeholder="" autocomplete="username"/>
+        <span class="hint">Pega el @ o la URL del perfil. No uses el de otra persona.</span>
+      </label>
+      <label>Nombre
+        <input class="field" name="displayName" required maxlength="80" value="${esc(displayName || "")}" placeholder=""/>
+        <span class="hint">Cómo quieres que se lea en el ranking.</span>
+      </label>
+      <label>Tagline
+        <input class="field" name="tagline" maxlength="80" value="${esc(tagline || "")}" placeholder=""/>
+        <span class="hint">Opcional. Una línea.</span>
+      </label>
+      <label>Bio corta
+        <textarea name="description" rows="3" maxlength="400" placeholder="">${esc(description || "")}</textarea>
+        <span class="hint">Opcional.</span>
+      </label>
+      <label>Link público
+        <input class="field" name="url" type="text" inputmode="url" maxlength="200" value="${esc(url || "")}" placeholder=""/>
+        <span class="hint">Opcional. Con o sin https://</span>
+      </label>
       <div class="row">
-        <label>Categoría<select name="category">${cats}</select></label>
+        <label>Categoría<select name="category" required>${cats}</select></label>
         <label>País<select name="country">${countries}</select></label>
         <label>Plataforma<select name="platform">${platforms}</select></label>
       </div>
-      <label>Total en el ranking (USD)
+      <label>Total en el ranking
         <div class="step-row">
-          <button type="button" class="stepper" data-delta="-1">−</button>
-          <input class="field" type="number" name="targetTotal" id="claim-total" min="10" max="999999" step="1" value="${Number(amount) || 10}"/>
-          <button type="button" class="stepper" data-delta="1">+</button>
+          <button type="button" class="stepper" data-delta="-1" aria-label="Bajar monto">−</button>
+          <input class="field money-input" id="claim-total-view" inputmode="numeric" autocomplete="off" value="${esc(shown)}" aria-label="Total en USD"/>
+          <input type="hidden" name="targetTotal" id="claim-total" value="${total}"/>
+          <button type="button" class="stepper" data-delta="1" aria-label="Subir monto">+</button>
         </div>
+        <span class="hint">USD enteros. El checkout cobra este total (o la diferencia si ya estás).</span>
       </label>
       <button class="btn wide" type="submit">${stripeEnabled() ? "Pagar con Stripe y reclamar" : "Pagar y reclamar el puesto"}</button>
     </form>
     <script>
-      document.querySelectorAll("[data-delta]").forEach((b) => {
-        b.addEventListener("click", () => {
-          const el = document.getElementById("claim-total");
-          if (!el) return;
-          el.value = Math.max(10, Math.min(999999, Number(el.value || 10) + Number(b.dataset.delta)));
+      (function () {
+        const form = document.getElementById("claim-form");
+        const err = document.getElementById("claim-error");
+        const total = document.getElementById("claim-total");
+        const view = document.getElementById("claim-total-view");
+        function show(msg) {
+          if (!err) return;
+          err.hidden = !msg;
+          err.textContent = msg || "";
+        }
+        function usd(n) {
+          return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+        }
+        function parseMoney(raw) {
+          const digits = String(raw || "").replace(/[^0-9]/g, "");
+          if (!digits) return NaN;
+          return Number(digits);
+        }
+        function clamp(n) {
+          return Math.max(10, Math.min(999999, Math.round(n)));
+        }
+        function setAmount(n) {
+          const v = Number.isFinite(n) ? clamp(n) : 10;
+          if (total) total.value = String(v);
+          if (view) view.value = usd(v);
+          return v;
+        }
+        function readAmount() {
+          const typed = parseMoney(view && view.value);
+          if (Number.isFinite(typed)) return typed;
+          const hidden = Number(total && total.value);
+          return Number.isFinite(hidden) ? hidden : 10;
+        }
+        document.querySelectorAll("[data-delta]").forEach((b) => {
+          b.addEventListener("click", () => setAmount(readAmount() + Number(b.dataset.delta)));
         });
-      });
+        if (view) {
+          view.addEventListener("blur", () => setAmount(readAmount()));
+          view.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              setAmount(readAmount());
+            }
+          });
+        }
+        if (!form) return;
+        form.addEventListener("submit", (e) => {
+          const amount = setAmount(readAmount());
+          const handle = String(form.handle.value || "").trim();
+          const name = String(form.displayName.value || "").trim();
+          const category = String(form.category.value || "").trim();
+          if (!handle || handle.length < 2) {
+            e.preventDefault();
+            show("Pon un @handle o URL.");
+            form.handle.focus();
+            return;
+          }
+          if (!name) {
+            e.preventDefault();
+            show("Falta el nombre.");
+            form.displayName.focus();
+            return;
+          }
+          if (!category) {
+            e.preventDefault();
+            show("Elige una categoría.");
+            form.category.focus();
+            return;
+          }
+          if (!Number.isFinite(amount) || amount < 10 || amount > 999999 || !Number.isInteger(amount)) {
+            e.preventDefault();
+            show("El total debe ser un entero entre $10 y $999,999.");
+            if (view) view.focus();
+          }
+        });
+      })();
     </script>`
 }
 
@@ -378,9 +539,11 @@ app.get("/", (req, res) => {
     boardBody = `${podiumHtml(listings, board)}${groups
       .map((c) => {
         const local = c.items.map((l, i) => ({ ...l, rank: i + 1 }));
+        const lead = local[0];
         return `<section class="rail">
           <div class="rail-head">
             <h2>${esc(c.name)}</h2>
+            <span class="rail-total">${lead ? `#1 ${money(lead.window_amount ?? lead.amount)}` : ""}</span>
             <a href="/category/${c.slug}">Ver todos</a>
           </div>
           ${rankArticles(local, board, next)}
@@ -391,6 +554,7 @@ app.get("/", (req, res) => {
   res.type("html").send(
     layout({
       title: titles[board] || "Ranking",
+      path: next,
       stats,
       nav,
       flash: req.query.ok ? `Listo. Estás en el #${esc(req.query.rank || "")}.` : "",
@@ -427,13 +591,14 @@ app.get("/categories", (_req, res) => {
       return `<a href="/category/${c.slug}">
         ${cover ? `<img src="${cover}" alt=""/>` : `<div class="cat-ph"></div>`}
         <span>${esc(c.name)}</span>
-        <small>${c.count} creadores${c.leader ? ` · #1 ${esc(c.leader.name)}` : ""}</small>
+        <small>${c.count} creador${c.count === 1 ? "" : "es"}${c.leader ? ` · #1 ${esc(c.leader.name)} · ${money(c.leader.amount)}` : ""}</small>
       </a>`;
     })
     .join("");
   res.type("html").send(
     layout({
       title: "Categorías",
+      path: "/categories",
       nav: "cats",
       stats,
       body: `<h1>Categorías</h1><p class="lead">Cada nicho tiene ranking, queridos y hate.</p><div class="cat-grid">${cats}</div>`,
@@ -467,6 +632,7 @@ app.get("/category/:slug", (req, res) => {
   res.type("html").send(
     layout({
       title: cat?.name || req.params.slug,
+      path: next,
       nav: "cats",
       stats,
       body: `<p class="muted"><a href="/categories">Categorías</a> / ${esc(cat?.name || req.params.slug)}</p>
@@ -494,6 +660,7 @@ app.get("/creator/:slug", (req, res) => {
   res.type("html").send(
     layout({
       title: listing.display_name,
+      path: `/creator/${listing.slug}`,
       stats,
       body: `<p class="muted"><a href="/">Ranking</a> ${cat ? `/ <a href="/category/${listing.category_slug}">${esc(cat.name)}</a>` : ""}</p>
         <div class="profile">
@@ -544,6 +711,7 @@ app.get("/claim", (req, res) => {
   res.type("html").send(
     layout({
       title: "Reclamar",
+      path: "/claim",
       stats,
       flash: req.query.canceled ? "Pago cancelado. Puedes intentarlo de nuevo." : "",
       body: claimForm({
@@ -566,6 +734,7 @@ app.get("/paid", async (req, res) => {
       return res.type("html").send(
         layout({
           title: "Confirmando pago",
+          path: "/paid",
           stats,
           body: `<h1>Confirmando el pago</h1>
             <p class="muted">Stripe todavía no marcó este pago como cobrado. Recarga en unos segundos.</p>
@@ -577,6 +746,7 @@ app.get("/paid", async (req, res) => {
       return res.type("html").send(
         layout({
           title: "Pago recibido",
+          path: "/paid",
           stats,
           body: `<h1>Pago recibido</h1>
             <p class="muted">Stripe cobró, pero no encontramos la ficha. Escribe a soporte con el id ${esc(sessionId)}.</p>`,
@@ -587,10 +757,12 @@ app.get("/paid", async (req, res) => {
       return res.type("html").send(
         layout({
           title: "Pago recibido",
+          path: "/paid",
           stats,
           body: `<h1>Pago recibido</h1>
             <p class="err">${esc(result.error)}</p>
-            <p class="muted">El cobro está en Stripe. Id ${esc(sessionId)}.</p>`,
+            <p class="muted">El cobro está en Stripe. Id ${esc(sessionId)}.</p>
+            <p><a class="btn ghost" href="/claim">Volver a reclamar</a></p>`,
         }),
       );
     }
@@ -599,8 +771,11 @@ app.get("/paid", async (req, res) => {
     return res.status(400).type("html").send(
       layout({
         title: "Pago",
+        path: "/paid",
         stats,
-        body: `<h1>No se pudo confirmar</h1><p class="err">${esc(err.message)}</p>`,
+        body: `<h1>No se pudo confirmar</h1>
+          <p class="err">${esc(publicPaymentError(err))}</p>
+          <p><a class="btn" href="/claim">Volver a reclamar</a></p>`,
       }),
     );
   }
@@ -623,6 +798,7 @@ app.post("/claim", async (req, res) => {
     return res.status(400).type("html").send(
       layout({
         title: "Reclamar",
+        path: "/claim",
         stats,
         body: claimForm({ ...req.body, amount: req.body.targetTotal, error: quoted.error }),
       }),
@@ -630,25 +806,28 @@ app.post("/claim", async (req, res) => {
   }
   const payload = quoted.payload;
   if (stripeEnabled()) {
+    let claimId = "";
     try {
       const origin = originFrom(req);
       if (!origin) throw new Error("Falta PUBLIC_URL (o el host de la petición).");
-      const id = `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      putPending(id, payload, { charged: quoted.charged });
+      claimId = `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      putPending(claimId, payload, { charged: quoted.charged });
       const session = await createCheckout({
-        claimId: id,
+        claimId,
         payload,
         charged: quoted.charged,
         origin,
       });
       return res.redirect(303, session.url);
     } catch (err) {
+      if (claimId) takePending(claimId);
       const stats = getStats();
       return res.status(400).type("html").send(
         layout({
           title: "Reclamar",
+          path: "/claim",
           stats,
-          body: claimForm({ ...payload, amount: payload.targetTotal, error: err.message }),
+          body: claimForm({ ...payload, amount: payload.targetTotal, error: publicPaymentError(err) }),
         }),
       );
     }
@@ -659,6 +838,7 @@ app.post("/claim", async (req, res) => {
     return res.status(400).type("html").send(
       layout({
         title: "Reclamar",
+        path: "/claim",
         stats,
         body: claimForm({ ...payload, amount: payload.targetTotal, error: result.error }),
       }),
@@ -672,6 +852,7 @@ app.get("/about", (_req, res) => {
   res.type("html").send(
     layout({
       title: "About",
+      path: "/about",
       stats,
       body: `<h1>About</h1>
         <p>podiosync.es es el ranking público de influencers de España y Latinoamérica. Tres tableros: el de pago (el puesto es lo que pagas), los más queridos y los de más hate.</p>
@@ -690,6 +871,7 @@ app.get("/faq", (_req, res) => {
   res.type("html").send(
     layout({
       title: "FAQ",
+      path: "/faq",
       stats,
       body: `<h1>FAQ</h1>
         <h2>¿Cómo funciona?</h2>
@@ -711,6 +893,7 @@ app.get("/rules", (_req, res) => {
   res.type("html").send(
     layout({
       title: "Reglas",
+      path: "/rules",
       stats,
       body: `<h1>Reglas</h1>
         <p>PodioSync es un ranking público. El rank es lo que pagas — nada más.</p>
