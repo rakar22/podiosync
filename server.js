@@ -58,7 +58,12 @@ app.get("/health", (_req, res) =>
   }),
 );
 app.get("/robots.txt", (_req, res) => {
-  res.type("text/plain").send(`User-agent: *\nAllow: /\nSitemap: ${siteOrigin()}/sitemap.xml\n`);
+  res
+    .type("text/plain; charset=utf-8")
+    .set("Cache-Control", "public, max-age=300")
+    .send(
+      `User-agent: *\nAllow: /\nDisallow: /paid\nDisallow: /webhook\nSitemap: ${siteOrigin()}/sitemap.xml\n`,
+    );
 });
 app.get("/sitemap.xml", (_req, res) => {
   const origin = siteOrigin();
@@ -190,7 +195,11 @@ function layout({ title, stats, body, flash, nav = "rank", path = "/" }) {
   <header><div class="wrap">
     <div class="top">
       <a class="wordmark" href="/">Podio<span>Sync</span></a>
-      <nav>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+        <span class="nav-toggle-bars" aria-hidden="true"></span>
+        <span class="sr-only">Menú</span>
+      </button>
+      <nav id="site-nav">
         <a class="${nav === "rank" ? "on" : ""}" href="/">Ranking</a>
         <a class="${nav === "love" ? "on" : ""}" href="/?board=love">Queridos</a>
         <a class="${nav === "hate" ? "on" : ""}" href="/?board=hate">Hate</a>
@@ -218,6 +227,23 @@ function layout({ title, stats, body, flash, nav = "rank", path = "/" }) {
     <a href="/?board=hate" class="${nav === "hate" ? "on" : ""}">Hate</a>
     <a href="/claim" class="${nav === "claim" ? "on" : ""}">Reclamar</a>
   </nav></div>
+  <script>
+    (function () {
+      const btn = document.querySelector(".nav-toggle");
+      const nav = document.getElementById("site-nav");
+      if (!btn || !nav) return;
+      function setOpen(on) {
+        nav.classList.toggle("open", on);
+        btn.setAttribute("aria-expanded", on ? "true" : "false");
+        document.body.classList.toggle("nav-open", on);
+      }
+      btn.addEventListener("click", () => setOpen(!nav.classList.contains("open")));
+      nav.querySelectorAll("a").forEach((a) => a.addEventListener("click", () => setOpen(false)));
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") setOpen(false);
+      });
+    })();
+  </script>
 </body></html>`;
 }
 
@@ -349,26 +375,44 @@ function claimForm({
     (p) => `<option value="${p.id}" ${p.id === platform ? "selected" : ""}>${esc(p.name)}</option>`,
   ).join("");
   const total = Number.isFinite(Number(amount)) ? Math.round(Number(amount)) : 10;
+  const shown = money(total);
   return `<h1>Reclamar un puesto</h1>
     <p class="muted">${stripeEnabled() ? "El pago se cobra con Stripe Checkout. El puesto se reclama al confirmar." : "Modo demo: el pago se simula. Pon STRIPE_SECRET_KEY para cobrar de verdad."}</p>
     ${error ? `<p class="err" id="claim-error">${esc(error)}</p>` : `<p class="err" id="claim-error" hidden></p>`}
     <form method="post" action="/claim" class="panel" style="margin-top:1rem;display:grid;gap:.75rem" id="claim-form" novalidate>
-      <label>@handle o URL<input class="field" name="handle" required minlength="2" maxlength="80" value="${esc(handle || "")}" placeholder="@lunavarela" autocomplete="username"/></label>
-      <label>Nombre<input class="field" name="displayName" required maxlength="80" value="${esc(displayName || "")}" placeholder="Luna Varela"/></label>
-      <label>Tagline<input class="field" name="tagline" maxlength="80" value="${esc(tagline || "")}" placeholder="glow sin filtro"/></label>
-      <label>Bio corta<textarea name="description" rows="3" maxlength="400" placeholder="Qué haces, desde dónde.">${esc(description || "")}</textarea></label>
-      <label>Link público<input class="field" name="url" type="text" inputmode="url" maxlength="200" value="${esc(url || "")}" placeholder="https://instagram.com/…" /></label>
+      <label>@handle o URL
+        <input class="field" name="handle" required minlength="2" maxlength="80" value="${esc(handle || "")}" placeholder="" autocomplete="username"/>
+        <span class="hint">Pega el @ o la URL del perfil. No uses el de otra persona.</span>
+      </label>
+      <label>Nombre
+        <input class="field" name="displayName" required maxlength="80" value="${esc(displayName || "")}" placeholder=""/>
+        <span class="hint">Cómo quieres que se lea en el ranking.</span>
+      </label>
+      <label>Tagline
+        <input class="field" name="tagline" maxlength="80" value="${esc(tagline || "")}" placeholder=""/>
+        <span class="hint">Opcional. Una línea.</span>
+      </label>
+      <label>Bio corta
+        <textarea name="description" rows="3" maxlength="400" placeholder="">${esc(description || "")}</textarea>
+        <span class="hint">Opcional.</span>
+      </label>
+      <label>Link público
+        <input class="field" name="url" type="text" inputmode="url" maxlength="200" value="${esc(url || "")}" placeholder=""/>
+        <span class="hint">Opcional. Con o sin https://</span>
+      </label>
       <div class="row">
         <label>Categoría<select name="category" required>${cats}</select></label>
         <label>País<select name="country">${countries}</select></label>
         <label>Plataforma<select name="platform">${platforms}</select></label>
       </div>
-      <label>Total en el ranking (USD)
+      <label>Total en el ranking
         <div class="step-row">
           <button type="button" class="stepper" data-delta="-1" aria-label="Bajar monto">−</button>
-          <input class="field" type="number" name="targetTotal" id="claim-total" required min="10" max="999999" step="1" value="${total}"/>
+          <input class="field money-input" id="claim-total-view" inputmode="numeric" autocomplete="off" value="${esc(shown)}" aria-label="Total en USD"/>
+          <input type="hidden" name="targetTotal" id="claim-total" value="${total}"/>
           <button type="button" class="stepper" data-delta="1" aria-label="Subir monto">+</button>
         </div>
+        <span class="hint">USD enteros. El checkout cobra este total (o la diferencia si ya estás).</span>
       </label>
       <button class="btn wide" type="submit">${stripeEnabled() ? "Pagar con Stripe y reclamar" : "Pagar y reclamar el puesto"}</button>
     </form>
@@ -377,24 +421,53 @@ function claimForm({
         const form = document.getElementById("claim-form");
         const err = document.getElementById("claim-error");
         const total = document.getElementById("claim-total");
+        const view = document.getElementById("claim-total-view");
         function show(msg) {
           if (!err) return;
           err.hidden = !msg;
           err.textContent = msg || "";
         }
+        function usd(n) {
+          return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+        }
+        function parseMoney(raw) {
+          const digits = String(raw || "").replace(/[^0-9]/g, "");
+          if (!digits) return NaN;
+          return Number(digits);
+        }
+        function clamp(n) {
+          return Math.max(10, Math.min(999999, Math.round(n)));
+        }
+        function setAmount(n) {
+          const v = Number.isFinite(n) ? clamp(n) : 10;
+          if (total) total.value = String(v);
+          if (view) view.value = usd(v);
+          return v;
+        }
+        function readAmount() {
+          const typed = parseMoney(view && view.value);
+          if (Number.isFinite(typed)) return typed;
+          const hidden = Number(total && total.value);
+          return Number.isFinite(hidden) ? hidden : 10;
+        }
         document.querySelectorAll("[data-delta]").forEach((b) => {
-          b.addEventListener("click", () => {
-            if (!total) return;
-            const next = Math.max(10, Math.min(999999, Math.round(Number(total.value || 10) + Number(b.dataset.delta))));
-            total.value = Number.isFinite(next) ? next : 10;
-          });
+          b.addEventListener("click", () => setAmount(readAmount() + Number(b.dataset.delta)));
         });
+        if (view) {
+          view.addEventListener("blur", () => setAmount(readAmount()));
+          view.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              setAmount(readAmount());
+            }
+          });
+        }
         if (!form) return;
         form.addEventListener("submit", (e) => {
+          const amount = setAmount(readAmount());
           const handle = String(form.handle.value || "").trim();
           const name = String(form.displayName.value || "").trim();
           const category = String(form.category.value || "").trim();
-          const amount = Number(form.targetTotal.value);
           if (!handle || handle.length < 2) {
             e.preventDefault();
             show("Pon un @handle o URL.");
@@ -416,7 +489,7 @@ function claimForm({
           if (!Number.isFinite(amount) || amount < 10 || amount > 999999 || !Number.isInteger(amount)) {
             e.preventDefault();
             show("El total debe ser un entero entre $10 y $999,999.");
-            form.targetTotal.focus();
+            if (view) view.focus();
           }
         });
       })();
@@ -518,7 +591,7 @@ app.get("/categories", (_req, res) => {
       return `<a href="/category/${c.slug}">
         ${cover ? `<img src="${cover}" alt=""/>` : `<div class="cat-ph"></div>`}
         <span>${esc(c.name)}</span>
-        <small>${c.count} creadores${c.leader ? ` · #1 ${esc(c.leader.name)} · ${money(c.leader.amount)}` : ""}</small>
+        <small>${c.count} creador${c.count === 1 ? "" : "es"}${c.leader ? ` · #1 ${esc(c.leader.name)} · ${money(c.leader.amount)}` : ""}</small>
       </a>`;
     })
     .join("");
