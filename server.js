@@ -21,6 +21,7 @@ import {
   claimRank,
   claimPriceFor,
   putPending,
+  takePending,
   quoteClaim,
   voteOn,
   formatUsd,
@@ -732,19 +733,21 @@ app.post("/claim", async (req, res) => {
   }
   const payload = quoted.payload;
   if (stripeEnabled()) {
+    let claimId = "";
     try {
       const origin = originFrom(req);
       if (!origin) throw new Error("Falta PUBLIC_URL (o el host de la petición).");
-      const id = `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      putPending(id, payload, { charged: quoted.charged });
+      claimId = `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      putPending(claimId, payload, { charged: quoted.charged });
       const session = await createCheckout({
-        claimId: id,
+        claimId,
         payload,
         charged: quoted.charged,
         origin,
       });
       return res.redirect(303, session.url);
     } catch (err) {
+      if (claimId) takePending(claimId);
       const stats = getStats();
       return res.status(400).type("html").send(
         layout({
