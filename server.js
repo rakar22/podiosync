@@ -43,6 +43,7 @@ import {
   categoryChips,
   claimForm,
   compareBlock,
+  creatorSocialsHtml,
   emptyBoard,
   esc,
   jsonLd,
@@ -68,6 +69,7 @@ import {
   PLATFORM_MAP,
   polarizationIndex,
 } from "./lib/views.js";
+import { resolveOutboundUrl } from "./lib/socials.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -467,8 +469,8 @@ app.get("/creator/:slug", (req, res) => {
               <div><b>✕ ${num(listing.hate)}</b><span>Hate${polar == null ? "" : ` · pol. ${polar}%`}</span></div>
             </div>
             <div>${voteForms(listing, next)}</div>
+            ${creatorSocialsHtml(listing)}
             <p style="margin-top:1.1rem;display:flex;flex-wrap:wrap;gap:.5rem">
-              ${listing.url ? `<a class="btn ghost" href="/go/${listing.slug}">Abrir perfil</a>` : ""}
               <a class="btn" href="/claim?amount=${price}&category=${listing.category_slug}&handle=${encodeURIComponent(listing.handle)}">Superar por ${money(price)}</a>
             </p>
           </div>
@@ -488,9 +490,10 @@ app.get("/creator/:slug", (req, res) => {
 
 app.get("/go/:slug", (req, res) => {
   const found = getListing(req.params.slug);
-  if (!found?.listing?.url) return res.redirect("/");
+  const dest = resolveOutboundUrl(found?.listing, req.query.u);
+  if (!dest) return res.redirect("/");
   registerClick(req.params.slug);
-  res.redirect(found.listing.url);
+  res.redirect(dest);
 });
 
 app.post("/vote", (req, res) => {
