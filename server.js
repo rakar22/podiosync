@@ -1,18 +1,9 @@
 import express from "express";
-import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  CATEGORIES,
-  CATEGORY_MAP,
-  COUNTRIES,
-  COUNTRY_MAP,
-  PLATFORMS,
-  PLATFORM_MAP,
-} from "./lib/categories.js";
+import { CATEGORIES, CATEGORY_MAP } from "./lib/categories.js";
 import {
   listBoard,
-  listActivity,
   getListing,
   getStats,
   bumpVisitor,
@@ -24,7 +15,6 @@ import {
   takePending,
   quoteClaim,
   voteOn,
-  formatUsd,
 } from "./lib/store.js";
 import {
   stripeEnabled,
@@ -37,6 +27,44 @@ import {
   publicPaymentError,
   FULFILL_EVENT_TYPES,
 } from "./lib/payments.js";
+import {
+  creatorsIndex,
+  deriveTrending,
+  filterRegion,
+  parseRegion,
+  paymentSeries,
+  searchListings,
+  withPaid24h,
+} from "./lib/insights.js";
+import {
+  ago,
+  avatarHtml,
+  categoryCards,
+  categoryChips,
+  claimForm,
+  compareBlock,
+  emptyBoard,
+  esc,
+  jsonLd,
+  layout,
+  modeTabs,
+  money,
+  num,
+  podiumHtml,
+  rankArticles,
+  regionTabs,
+  scoreLabel,
+  siteOrigin,
+  sparklineSvg,
+  trustSection,
+  trendingSection,
+  voteForms,
+  catCover,
+  CATEGORY_MAP as CAT_MAP,
+  COUNTRY_MAP,
+  PLATFORM_MAP,
+  polarizationIndex,
+} from "./lib/views.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -47,9 +75,6 @@ app.set("trust proxy", true);
 app.get("/favicon.svg", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "favicon.svg"));
 });
-function siteOrigin() {
-  return (process.env.PUBLIC_URL || "https://podiosync.es").replace(/\/$/, "");
-}
 app.get("/health", (_req, res) =>
   res.json({
     ok: true,
@@ -67,9 +92,10 @@ app.get("/robots.txt", (_req, res) => {
 });
 app.get("/sitemap.xml", (_req, res) => {
   const origin = siteOrigin();
-  const urls = ["/", "/categories", "/claim", "/about", "/faq", "/rules"].concat(
-    CATEGORIES.map((c) => `/category/${c.slug}`),
-  );
+  const creators = listBoard("all").map((l) => `/creator/${l.slug}`);
+  const urls = ["/", "/categories", "/claim", "/about", "/faq", "/rules", "/search"]
+    .concat(CATEGORIES.map((c) => `/category/${c.slug}`))
+    .concat(creators);
   res
     .type("application/xml")
     .send(
@@ -125,394 +151,38 @@ app.use((req, res, next) => {
   next();
 });
 
-function stripeBadge() {
-  const m = stripeMode();
-  if (m === "live") return "Stripe · pagos reales";
-  if (m === "test") return "Stripe test";
-  if (m === "on") return "Stripe";
-  return "modo demo";
-}
-function money(n) {
-  return formatUsd(n);
-}
-function num(n) {
-  return new Intl.NumberFormat("es-ES").format(Number(n) || 0);
-}
-function esc(s) {
-  return String(s ?? "")
-    .replace(/&/g, "\u0026amp;")
-    .replace(/</g, "\u0026lt;")
-    .replace(/>/g, "\u0026gt;")
-    .replace(/"/g, "\u0026quot;");
-}
-function ago(iso) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const s = Math.round((Date.now() - d.getTime()) / 1000);
-  if (s < 60) return "hace un momento";
-  if (s < 3600) return `hace ${Math.floor(s / 60)} min`;
-  if (s < 86400) return `hace ${Math.floor(s / 3600)} h`;
-  return `hace ${Math.floor(s / 86400)} d`;
+function parseBoard(raw) {
+  return raw === "today" || raw === "daily" || raw === "love" || raw === "hate" ? raw : "all";
 }
 
-function compact(n) {
-  const v = Number(n) || 0;
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1).replace(".0", "")} M`;
-  if (v >= 1000) return `${(v / 1000).toFixed(v >= 10_000 ? 0 : 1).replace(".0", "")} mil`;
-  return num(v);
+function pageNav(board, fallback = "rank") {
+  if (board === "love" || board === "hate") return board;
+  if (board === "today" || board === "daily") return "trending";
+  return fallback;
 }
 
-function layout({ title, stats, body, flash, nav = "rank", path = "/" }) {
-  const origin = siteOrigin();
-  const canonical = `${origin}${path.startsWith("/") ? path : `/${path}`}`;
-  const desc =
-    "El ranking público de influencers de España y Latinoamérica. Paga para subir. Vota a los más queridos y a los que más hate tienen.";
-  return `<!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>${esc(title)} · PodioSync</title>
-  <meta name="description" content="${esc(desc)}"/>
-  <link rel="canonical" href="${esc(canonical)}"/>
-  <meta property="og:site_name" content="PodioSync"/>
-  <meta property="og:title" content="${esc(title)} · PodioSync"/>
-  <meta property="og:description" content="Influencers ES/LATAM. Ranking de pago, más queridos y más hate."/>
-  <meta property="og:type" content="website"/>
-  <meta property="og:url" content="${esc(canonical)}"/>
-  <meta property="og:image" content="${esc(origin)}/public/og.jpg"/>
-  <meta name="twitter:card" content="summary_large_image"/>
-  <meta name="twitter:title" content="${esc(title)} · PodioSync"/>
-  <meta name="twitter:description" content="Influencers ES/LATAM. Ranking de pago, más queridos y más hate."/>
-  <meta name="twitter:image" content="${esc(origin)}/public/og.jpg"/>
-  <meta name="theme-color" content="#F4F4F6"/>
-  <meta name="apple-mobile-web-app-capable" content="yes"/>
-  <link rel="icon" href="/public/favicon.svg"/>
-  <link rel="apple-touch-icon" href="/public/icon.jpg"/>
-  <link rel="stylesheet" href="/public/styles.css"/>
-</head>
-<body>
-  <header><div class="wrap">
-    <div class="top">
-      <a class="wordmark" href="/">Podio<span>Sync</span></a>
-      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
-        <span class="nav-toggle-bars" aria-hidden="true"></span>
-        <span class="sr-only">Menú</span>
-      </button>
-      <nav id="site-nav">
-        <a class="${nav === "rank" ? "on" : ""}" href="/">Ranking</a>
-        <a class="${nav === "love" ? "on" : ""}" href="/?board=love">Queridos</a>
-        <a class="${nav === "hate" ? "on" : ""}" href="/?board=hate">Hate</a>
-        <a class="${nav === "cats" ? "on" : ""}" href="/categories">Categorías</a>
-        <a class="${nav === "claim" ? "on" : ""}" href="/claim">Reclamar</a>
-      </nav>
-    </div>
-  </div></header>
-  <main class="wrap">
-    ${flash ? `<p class="flash">${esc(flash)}</p>` : ""}
-    ${body}
-  </main>
-  <footer><div class="wrap">
-    <p>El puesto de pago es lo que pagas. Queridos y hate los decide el público.</p>
-    <div class="stats">
-      <div><b>${num(stats.listings)}</b>creadores</div>
-      <div><b>${num(stats.visitors)}</b>visitas</div>
-      <div><b>${num(stats.online)}</b>online ahora</div>
-    </div>
-    <p style="margin-top:1.4rem"><a href="/about">About</a> · <a href="/faq">FAQ</a> · <a href="/rules">Reglas</a> · ${esc(stripeBadge())}</p>
-  </div></footer>
-  <div class="tabbar"><nav>
-    <a href="/" class="${nav === "rank" ? "on" : ""}">Ranking</a>
-    <a href="/?board=love" class="${nav === "love" ? "on" : ""}">Queridos</a>
-    <a href="/?board=hate" class="${nav === "hate" ? "on" : ""}">Hate</a>
-    <a href="/claim" class="${nav === "claim" ? "on" : ""}">Reclamar</a>
-  </nav></div>
-  <script>
-    (function () {
-      const btn = document.querySelector(".nav-toggle");
-      const nav = document.getElementById("site-nav");
-      if (!btn || !nav) return;
-      function setOpen(on) {
-        nav.classList.toggle("open", on);
-        btn.setAttribute("aria-expanded", on ? "true" : "false");
-        document.body.classList.toggle("nav-open", on);
-      }
-      btn.addEventListener("click", () => setOpen(!nav.classList.contains("open")));
-      nav.querySelectorAll("a").forEach((a) => a.addEventListener("click", () => setOpen(false)));
-      document.addEventListener("keydown", (e) => {
-        if (e.key === "Escape") setOpen(false);
-      });
-    })();
-  </script>
-</body></html>`;
-}
-
-function avatarHtml(slug, name, cls = "avatar") {
-  const file = path.join(__dirname, "public", "avatars", `${slug}.jpg`);
-  if (fs.existsSync(file)) {
-    return `<img class="${cls}" src="/public/avatars/${esc(slug)}.jpg" alt="${esc(name)}"/>`;
-  }
-  const parts = String(name || "").trim().split(/\s+/);
-  const ini = parts.length > 1
-    ? (parts[0][0] + parts[1][0]).toUpperCase()
-    : String(name || "?").slice(0, 2).toUpperCase();
-  return `<span class="${cls} fallback">${esc(ini)}</span>`;
-}
-
-function catCover(slug) {
-  const file = path.join(__dirname, "public", "categories", `${slug}.jpg`);
-  return fs.existsSync(file) ? `/public/categories/${slug}.jpg` : "";
-}
-
-function voteForms(listing, next = "/") {
-  return `<div class="votes">
-    <form method="post" action="/vote">
-      <input type="hidden" name="slug" value="${esc(listing.slug)}"/>
-      <input type="hidden" name="kind" value="love"/>
-      <input type="hidden" name="next" value="${esc(next)}"/>
-      <button class="love" type="submit">♥ ${compact(listing.love)}</button>
-    </form>
-    <form method="post" action="/vote">
-      <input type="hidden" name="slug" value="${esc(listing.slug)}"/>
-      <input type="hidden" name="kind" value="hate"/>
-      <input type="hidden" name="next" value="${esc(next)}"/>
-      <button class="hate" type="submit">✕ ${compact(listing.hate)}</button>
-    </form>
-  </div>`;
-}
-
-function scoreLabel(listing, board) {
-  if (board === "love") return `♥ ${compact(listing.love)}`;
-  if (board === "hate") return `✕ ${compact(listing.hate)}`;
-  return money(listing.window_amount ?? listing.amount);
-}
-
-function rankArticles(listings, board = "all", next = "/") {
-  return `<div class="ios-group">${listings
-    .map((l) => {
-      const cat = CATEGORY_MAP[l.category_slug];
-      return `<article>
-        <span class="rank">${l.rank}</span>
-        ${avatarHtml(l.slug, l.display_name)}
-        <div class="row-main">
-          <h2><a href="/creator/${esc(l.slug)}">${esc(l.display_name)}</a></h2>
-          <p class="muted">${esc(l.handle)}${cat ? ` · ${esc(cat.name)}` : ""}</p>
-          ${voteForms(l, next)}
-        </div>
-        <p class="price">${scoreLabel(l, board)}</p>
-      </article>`;
-    })
-    .join("")}</div>`;
-}
-
-function podiumHtml(listings, board = "all") {
-  const top = listings.slice(0, 3);
-  if (!top.length) return "";
-  const order = top.length === 3 ? [top[1], top[0], top[2]] : top;
-  const cls = top.length === 3 ? ["p2", "p1", "p3"] : ["p1", "p2", "p3"];
-  return `<div class="podium">${order
-    .map((l, i) => {
-      const c = cls[i] || "p3";
-      return `<a class="card ${c}" href="/creator/${esc(l.slug)}">
-        <span class="place">#${l.rank}</span>
-        ${avatarHtml(l.slug, l.display_name)}
-        <div>
-          <h3>${esc(l.display_name)}</h3>
-          <p class="muted" style="margin:.2rem 0 0;font-size:.8rem">${esc(l.handle)}</p>
-        </div>
-        <p class="score">${scoreLabel(l, board)}</p>
-      </a>`;
-    })
-    .join("")}</div>`;
-}
-
-function modeTabs(board, cat = "") {
-  const q = cat ? `&cat=${esc(cat)}` : "";
-  const items = [
-    ["all", "Ranking", ""],
-    ["love", "Más queridos", "love"],
-    ["hate", "Más hate", "hate"],
-    ["today", "Últimas 24h", ""],
-  ];
-  return `<div class="modes">${items
-    .map(
-      ([id, label, extra]) =>
-        `<a class="${extra} ${board === id ? "on" : ""}" href="/?board=${id}${q}">${label}</a>`,
-    )
-    .join("")}</div>`;
-}
-
-function categoryChips(active) {
-  const populated = categorySummaries().filter((c) => c.count > 0);
-  const links = [`<a class="${active ? "" : "on"}" href="/">Todos</a>`].concat(
-    populated.map(
-      (c) =>
-        `<a class="${active === c.slug ? "on" : ""}" href="/category/${c.slug}">${esc(c.name)}</a>`,
-    ),
-  );
-  return `<div class="chips">${links.join("")}</div>`;
-}
-
-function claimForm({
-  amount,
-  category,
-  handle,
-  displayName,
-  tagline,
-  description,
-  url,
-  country,
-  platform,
-  error,
-}) {
-  const cats = CATEGORIES.map(
-    (c) => `<option value="${c.slug}" ${c.slug === category ? "selected" : ""}>${esc(c.name)}</option>`,
-  ).join("");
-  const countries = COUNTRIES.map(
-    (c) => `<option value="${c.code}" ${c.code === country ? "selected" : ""}>${esc(c.name)}</option>`,
-  ).join("");
-  const platforms = PLATFORMS.map(
-    (p) => `<option value="${p.id}" ${p.id === platform ? "selected" : ""}>${esc(p.name)}</option>`,
-  ).join("");
-  const total = Number.isFinite(Number(amount)) ? Math.round(Number(amount)) : 10;
-  const shown = money(total);
-  return `<h1>Reclamar un puesto</h1>
-    <p class="muted">${stripeEnabled() ? "El pago se cobra con Stripe Checkout. El puesto se reclama al confirmar." : "Modo demo: el pago se simula. Pon STRIPE_SECRET_KEY para cobrar de verdad."}</p>
-    ${error ? `<p class="err" id="claim-error">${esc(error)}</p>` : `<p class="err" id="claim-error" hidden></p>`}
-    <form method="post" action="/claim" class="panel" style="margin-top:1rem;display:grid;gap:.75rem" id="claim-form" novalidate>
-      <label>@handle o URL
-        <input class="field" name="handle" required minlength="2" maxlength="80" value="${esc(handle || "")}" placeholder="" autocomplete="username"/>
-        <span class="hint">Pega el @ o la URL del perfil. No uses el de otra persona.</span>
-      </label>
-      <label>Nombre
-        <input class="field" name="displayName" required maxlength="80" value="${esc(displayName || "")}" placeholder=""/>
-        <span class="hint">Cómo quieres que se lea en el ranking.</span>
-      </label>
-      <label>Tagline
-        <input class="field" name="tagline" maxlength="80" value="${esc(tagline || "")}" placeholder=""/>
-        <span class="hint">Opcional. Una línea.</span>
-      </label>
-      <label>Bio corta
-        <textarea name="description" rows="3" maxlength="400" placeholder="">${esc(description || "")}</textarea>
-        <span class="hint">Opcional.</span>
-      </label>
-      <label>Link público
-        <input class="field" name="url" type="text" inputmode="url" maxlength="200" value="${esc(url || "")}" placeholder=""/>
-        <span class="hint">Opcional. Con o sin https://</span>
-      </label>
-      <div class="row">
-        <label>Categoría<select name="category" required>${cats}</select></label>
-        <label>País<select name="country">${countries}</select></label>
-        <label>Plataforma<select name="platform">${platforms}</select></label>
-      </div>
-      <label>Total en el ranking
-        <div class="step-row">
-          <button type="button" class="stepper" data-delta="-1" aria-label="Bajar monto">−</button>
-          <input class="field money-input" id="claim-total-view" inputmode="numeric" autocomplete="off" value="${esc(shown)}" aria-label="Total en USD"/>
-          <input type="hidden" name="targetTotal" id="claim-total" value="${total}"/>
-          <button type="button" class="stepper" data-delta="1" aria-label="Subir monto">+</button>
-        </div>
-        <span class="hint">USD enteros. El checkout cobra este total (o la diferencia si ya estás).</span>
-      </label>
-      <button class="btn wide" type="submit">${stripeEnabled() ? "Pagar con Stripe y reclamar" : "Pagar y reclamar el puesto"}</button>
-    </form>
-    <script>
-      (function () {
-        const form = document.getElementById("claim-form");
-        const err = document.getElementById("claim-error");
-        const total = document.getElementById("claim-total");
-        const view = document.getElementById("claim-total-view");
-        function show(msg) {
-          if (!err) return;
-          err.hidden = !msg;
-          err.textContent = msg || "";
-        }
-        function usd(n) {
-          return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
-        }
-        function parseMoney(raw) {
-          const digits = String(raw || "").replace(/[^0-9]/g, "");
-          if (!digits) return NaN;
-          return Number(digits);
-        }
-        function clamp(n) {
-          return Math.max(10, Math.min(999999, Math.round(n)));
-        }
-        function setAmount(n) {
-          const v = Number.isFinite(n) ? clamp(n) : 10;
-          if (total) total.value = String(v);
-          if (view) view.value = usd(v);
-          return v;
-        }
-        function readAmount() {
-          const typed = parseMoney(view && view.value);
-          if (Number.isFinite(typed)) return typed;
-          const hidden = Number(total && total.value);
-          return Number.isFinite(hidden) ? hidden : 10;
-        }
-        document.querySelectorAll("[data-delta]").forEach((b) => {
-          b.addEventListener("click", () => setAmount(readAmount() + Number(b.dataset.delta)));
-        });
-        if (view) {
-          view.addEventListener("blur", () => setAmount(readAmount()));
-          view.addEventListener("keydown", (e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              setAmount(readAmount());
-            }
-          });
-        }
-        if (!form) return;
-        form.addEventListener("submit", (e) => {
-          const amount = setAmount(readAmount());
-          const handle = String(form.handle.value || "").trim();
-          const name = String(form.displayName.value || "").trim();
-          const category = String(form.category.value || "").trim();
-          if (!handle || handle.length < 2) {
-            e.preventDefault();
-            show("Pon un @handle o URL.");
-            form.handle.focus();
-            return;
-          }
-          if (!name) {
-            e.preventDefault();
-            show("Falta el nombre.");
-            form.displayName.focus();
-            return;
-          }
-          if (!category) {
-            e.preventDefault();
-            show("Elige una categoría.");
-            form.category.focus();
-            return;
-          }
-          if (!Number.isFinite(amount) || amount < 10 || amount > 999999 || !Number.isInteger(amount)) {
-            e.preventDefault();
-            show("El total debe ser un entero entre $10 y $999,999.");
-            if (view) view.focus();
-          }
-        });
-      })();
-    </script>`
-}
+app.get("/api/creators.json", (_req, res) => {
+  const listings = listBoard("all");
+  res
+    .set("Cache-Control", "public, max-age=60")
+    .json({ creators: creatorsIndex(listings) });
+});
 
 app.get("/", (req, res) => {
   bumpVisitor();
-  const board =
-    req.query.board === "today" ||
-    req.query.board === "daily" ||
-    req.query.board === "love" ||
-    req.query.board === "hate"
-      ? req.query.board
-      : "all";
+  const board = parseBoard(req.query.board);
   const cat = typeof req.query.cat === "string" ? req.query.cat : "";
-  const listings = listBoard(board, cat || null);
+  const region = parseRegion(req.query.region);
+  const raw = listBoard(board, cat || null);
+  const todayRaw = listBoard("today", cat || null);
+  const allRaw = board === "all" ? raw : listBoard("all", cat || null);
+  const listings = withPaid24h(filterRegion(raw, region), filterRegion(todayRaw, region));
   const stats = getStats();
   const top = listings[0];
   const take = claimPriceFor(top?.window_amount ?? top?.amount ?? 0, true);
-  const nav = board === "love" || board === "hate" ? board : "rank";
+  const nav = pageNav(board, "rank");
   const titles = {
-    all: "El ranking de influencers ES & LATAM",
+    all: "El ranking vivo de la influencia",
     love: "Los más queridos",
     hate: "Los que más hate tienen",
     today: "Lo que se movió en 24 horas",
@@ -522,15 +192,36 @@ app.get("/", (req, res) => {
     all: "Cada categoría tiene su propio podio. El puesto de pago es lo que pagas. El cariño y el hate los vota el público.",
     love: "Un voto por persona y creador. Cambia a hate si te arrepientes. Gana quien más corazones suma.",
     hate: "El tablero del drama. No es un pago: es lo que la gente marca. Un voto por persona.",
-    today: "Solo cuentan los pagos de las últimas 24 horas.",
+    today: "Solo cuentan los pagos de las últimas 24 horas. La etiqueta “+$ · 24h” es dinero pagado, no un rank histórico.",
     daily: "El recuento del día UTC.",
   };
-  const next = `/?board=${board}${cat ? `&cat=${esc(cat)}` : ""}`;
+  const descs = {
+    all: "El ranking público de influencers de España y Latinoamérica. Paga para subir. Vota queridos y hate.",
+    love: "Los influencers más queridos de España y LATAM, votados por el público en PodioSync.",
+    hate: "El ranking de hate de influencers ES/LATAM. Un voto por persona, sin pagos.",
+    today: "Pagos de las últimas 24 horas en el ranking de influencers PodioSync.",
+    daily: "Ranking del día UTC en PodioSync.",
+  };
+  const nextPath =
+    "/" +
+    [
+      board !== "all" ? `board=${encodeURIComponent(board)}` : "",
+      cat ? `cat=${encodeURIComponent(cat)}` : "",
+      region !== "all" ? `region=${encodeURIComponent(region)}` : "",
+    ]
+      .filter(Boolean)
+      .join("&");
+  const path = nextPath === "/" ? "/" : `/?${nextPath.slice(1)}`;
+  const cats = categorySummaries().filter((c) => c.count > 0);
+  const trending = deriveTrending({
+    all: withPaid24h(filterRegion(allRaw, region), filterRegion(todayRaw, region)),
+    today: filterRegion(todayRaw, region),
+  });
   let boardBody = "";
   if (!listings.length) {
-    boardBody = `<p class="muted">Nadie en este tablero todavía.</p>`;
-  } else if (board === "love" || board === "hate" || board === "today" || cat) {
-    boardBody = `${podiumHtml(listings, board)}${rankArticles(listings.slice(3), board, next)}`;
+    boardBody = emptyBoard();
+  } else if (board === "love" || board === "hate" || board === "today" || board === "daily" || cat) {
+    boardBody = `${podiumHtml(listings, board)}${rankArticles(listings.slice(3), board, path)}`;
   } else {
     const groups = CATEGORIES.map((c) => ({
       ...c,
@@ -546,79 +237,139 @@ app.get("/", (req, res) => {
             <span class="rail-total">${lead ? `#1 ${money(lead.window_amount ?? lead.amount)}` : ""}</span>
             <a href="/category/${c.slug}">Ver todos</a>
           </div>
-          ${rankArticles(local, board, next)}
+          ${rankArticles(local, board, path)}
         </section>`;
       })
       .join("")}`;
   }
+  const itemList = jsonLd({
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: titles[board],
+    itemListElement: listings.slice(0, 10).map((l, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      url: `${siteOrigin()}/creator/${l.slug}`,
+      name: l.display_name,
+    })),
+  });
   res.type("html").send(
     layout({
       title: titles[board] || "Ranking",
-      path: next,
+      description: descs[board],
+      path,
       stats,
       nav,
+      board,
+      listings: listBoard("all"),
+      extraHead: itemList,
       flash: req.query.ok ? `Listo. Estás en el #${esc(req.query.rank || "")}.` : "",
       body: `
       <section class="hero">
         <div>
-          <p class="muted" style="margin:0 0 .4rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;font-size:.72rem">PodioSync</p>
+          <p class="eyebrow">PodioSync · ES / LATAM</p>
           <h1>${esc(titles[board])}</h1>
           <p class="lead">${esc(leads[board])}</p>
+          ${regionTabs(region, { board: board === "all" ? "" : board, cat })}
           <div class="hero-actions">
-            <a class="btn" href="/claim?amount=${take}">Reclamar #1 por ${money(take)}</a>
-            <a class="btn ghost" href="/categories">Explorar categorías</a>
+            <a class="btn" href="#ranking">Explorar ranking</a>
+            <a class="btn ghost" href="/search" data-search-open>Buscar influencer</a>
           </div>
         </div>
-        <div class="panel" style="margin:0">
-          <p class="muted" style="margin:0 0 .4rem;font-size:.8rem;font-weight:700">Ahora mismo</p>
-          <p style="margin:0;font-size:1.05rem;font-weight:750">${top ? `#1 ${esc(top.display_name)}` : "Sin #1"}</p>
-          <p class="muted" style="margin:.35rem 0 0">${top ? scoreLabel(top, board) : "—"} · ${num(stats.listings)} perfiles</p>
+        <div class="now-card">
+          <p class="eyebrow">Ahora mismo</p>
+          <p class="name">${top ? `#${top.rank} ${esc(top.display_name)}` : "Sin #1"}</p>
+          <p class="muted">${top ? scoreLabel(top, board) : "—"} · ${num(stats.listings)} perfiles</p>
+          ${top ? `<p class="hero-actions" style="margin-top:1rem">
+            <a class="btn" href="/creator/${esc(top.slug)}">Ver perfil</a>
+            ${board === "all" || board === "today" || board === "daily" ? `<a class="btn ghost" href="/claim?amount=${take}">Reclamar #1 por ${money(take)}</a>` : ""}
+          </p>` : ""}
         </div>
       </section>
-      ${modeTabs(board, cat)}
-      ${categoryChips(cat)}
-      ${boardBody}`,
+      ${board === "all" && !cat ? trendingSection(trending, board) : ""}
+      <div id="ranking">
+        ${modeTabs(board, { cat, region })}
+        ${categoryChips(cat, { board, region, cats })}
+        ${boardBody}
+      </div>
+      ${board === "love" || board === "hate" ? `<p class="hint" style="margin:1rem 0 2rem">Polarización = 100 × 2 × min(♥,✕) / (♥+✕). 0% consenso, 100% empate de votos.</p>` : ""}
+      ${trustSection()}`,
+    }),
+  );
+});
+
+app.get("/search", (req, res) => {
+  const stats = getStats();
+  const q = String(req.query.q || "").trim();
+  const all = listBoard("all");
+  const hits = searchListings(all, q);
+  const list = (q ? hits : all.slice(0, 12))
+    .map(
+      (l) => `<li><a href="/creator/${esc(l.slug)}">
+        ${avatarHtml(l.slug, l.display_name)}
+        <span><strong>${esc(l.display_name)}</strong><br/><span class="muted">${esc(l.handle)}</span></span>
+        <span class="muted">${esc(CAT_MAP[l.category_slug]?.name || "")}</span>
+      </a></li>`,
+    )
+    .join("");
+  res.type("html").send(
+    layout({
+      title: q ? `Buscar: ${q}` : "Buscar",
+      description: "Busca influencers del ranking PodioSync por nombre, @handle o categoría.",
+      path: q ? `/search?q=${encodeURIComponent(q)}` : "/search",
+      nav: "search",
+      stats,
+      listings: all,
+      body: `<section class="search-page">
+        <p class="eyebrow">Directorio</p>
+        <h1>Buscar influencer</h1>
+        <p class="lead">Resultados sobre el ranking actual. Sin índice inventado: nombre, @handle y categoría.</p>
+        <form class="search-box" method="get" action="/search">
+          <label>Nombre o @handle
+            <input class="field" id="search-page-input" type="search" name="q" value="${esc(q)}" placeholder="Ibai, @westcol, música…" autofocus/>
+          </label>
+        </form>
+        <ul class="search-results" id="search-page-results">${list || `<li class="muted">${q ? "Sin resultados." : "Escribe para filtrar."}</li>`}</ul>
+      </section>`,
     }),
   );
 });
 
 app.get("/categories", (_req, res) => {
   const stats = getStats();
-  const cats = categorySummaries()
-    .filter((c) => c.count > 0)
-    .map((c) => {
-      const cover = catCover(c.slug);
-      return `<a href="/category/${c.slug}">
-        ${cover ? `<img src="${cover}" alt=""/>` : `<div class="cat-ph"></div>`}
-        <span>${esc(c.name)}</span>
-        <small>${c.count} creador${c.count === 1 ? "" : "es"}${c.leader ? ` · #1 ${esc(c.leader.name)} · ${money(c.leader.amount)}` : ""}</small>
-      </a>`;
-    })
-    .join("");
+  const all = listBoard("all");
+  const cats = categorySummaries().filter((c) => c.count > 0);
   res.type("html").send(
     layout({
       title: "Categorías",
+      description: "Cada nicho de PodioSync tiene ranking de pago, más queridos y más hate.",
       path: "/categories",
       nav: "cats",
       stats,
-      body: `<h1>Categorías</h1><p class="lead">Cada nicho tiene ranking, queridos y hate.</p><div class="cat-grid">${cats}</div>`,
+      listings: all,
+      extraHead: jsonLd({
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        name: "Categorías · PodioSync",
+      }),
+      body: `<p class="eyebrow">Nichos</p><h1>Categorías</h1><p class="lead">Cada nicho tiene ranking, queridos y hate. El #1 es el total pagado en esa categoría.</p>${categoryCards(cats)}`,
     }),
   );
 });
 
 app.get("/category/:slug", (req, res) => {
   const cat = CATEGORY_MAP[req.params.slug];
-  const board =
-    req.query.board === "today" ||
-    req.query.board === "love" ||
-    req.query.board === "hate"
-      ? req.query.board
-      : "all";
-  const listings = listBoard(board, req.params.slug);
+  const board = parseBoard(req.query.board);
+  const region = parseRegion(req.query.region);
+  const todayRaw = listBoard("today", req.params.slug);
+  const listings = withPaid24h(
+    filterRegion(listBoard(board, req.params.slug), region),
+    filterRegion(todayRaw, region),
+  );
   const stats = getStats();
   const take = claimPriceFor(listings[0]?.amount ?? 0, true);
   const cover = catCover(req.params.slug);
-  const next = `/category/${esc(req.params.slug)}?board=${board}`;
+  const path = `/category/${req.params.slug}${board !== "all" || region !== "all" ? `?${[board !== "all" ? `board=${board}` : "", region !== "all" ? `region=${region}` : ""].filter(Boolean).join("&")}` : ""}`;
   const tabs = [
     ["all", "Ranking"],
     ["love", "Queridos"],
@@ -626,22 +377,26 @@ app.get("/category/:slug", (req, res) => {
   ]
     .map(
       ([id, label]) =>
-        `<a class="${board === id ? "on" : ""}" href="/category/${esc(req.params.slug)}?board=${id}">${label}</a>`,
+        `<a class="${board === id ? "on" : ""}" href="/category/${esc(req.params.slug)}?board=${id}${region !== "all" ? `&region=${region}` : ""}">${label}</a>`,
     )
     .join("");
   res.type("html").send(
     layout({
       title: cat?.name || req.params.slug,
-      path: next,
+      description: cat?.blurb || `Ranking de ${req.params.slug} en PodioSync.`,
+      path,
       nav: "cats",
+      board,
       stats,
+      listings: listBoard("all"),
       body: `<p class="muted"><a href="/categories">Categorías</a> / ${esc(cat?.name || req.params.slug)}</p>
-        ${cover ? `<img class="cover" src="${cover}" alt=""/>` : ""}
+        ${cover ? `<img class="cover" src="${cover}" alt="${esc(cat?.name || "")}"/>` : ""}
         <h1>${esc(cat?.name || req.params.slug)}</h1>
         <p class="lead">${esc(cat?.blurb || "")}</p>
+        ${regionTabs(region, { board: board === "all" ? "" : board, base: `/category/${req.params.slug}` })}
         <p style="margin-top:1rem"><a class="btn" href="/claim?amount=${take}&category=${esc(req.params.slug)}">Reclamar #1 por ${money(take)}</a></p>
         <div class="modes" style="margin-top:1.2rem">${tabs}</div>
-        ${listings.length ? podiumHtml(listings, board) + rankArticles(listings.slice(3), board, next) : `<p class="muted">Nadie en esta categoría todavía.</p>`}`,
+        ${listings.length ? podiumHtml(listings, board) + rankArticles(listings.slice(3), board, path) : emptyBoard()}`,
     }),
   );
 });
@@ -649,41 +404,79 @@ app.get("/category/:slug", (req, res) => {
 app.get("/creator/:slug", (req, res) => {
   const found = getListing(req.params.slug);
   const stats = getStats();
-  if (!found) return res.status(404).type("html").send(layout({ title: "404", stats, body: "<h1>No está en el ranking</h1>" }));
+  const all = listBoard("all");
+  if (!found) {
+    return res.status(404).type("html").send(
+      layout({
+        title: "404",
+        stats,
+        listings: all,
+        body: "<h1>No está en el ranking</h1><p class='lead'>Esa ficha no existe. Prueba el buscador.</p>",
+      }),
+    );
+  }
   const { listing, payments } = found;
-  const cat = CATEGORY_MAP[listing.category_slug];
+  const cat = CAT_MAP[listing.category_slug];
   const price = claimPriceFor(listing.amount, listing.rank === 1);
   const next = `/creator/${listing.slug}`;
+  const compareSlug = typeof req.query.compare === "string" ? req.query.compare : "";
+  const other = compareSlug && compareSlug !== listing.slug ? getListing(compareSlug)?.listing : null;
+  const series = paymentSeries(payments);
   const pays = payments
-    .map((p) => `<li style="display:flex;justify-content:space-between"><span class="muted">${ago(p.created_at)}</span><span>${money(p.amount)}</span></li>`)
+    .map(
+      (p) =>
+        `<li style="display:flex;justify-content:space-between"><span class="muted">${ago(p.created_at)}</span><span>${money(p.amount)}</span></li>`,
+    )
     .join("");
+  const polar = polarizationIndex(listing.love, listing.hate);
+  const personLd = jsonLd({
+    "@context": "https://schema.org",
+    "@type": "Person",
+    name: listing.display_name,
+    alternateName: listing.handle,
+    url: `${siteOrigin()}/creator/${listing.slug}`,
+    description: listing.tagline || listing.description,
+  });
   res.type("html").send(
     layout({
       title: listing.display_name,
+      description: `${listing.display_name} (${listing.handle}) en el ranking PodioSync. #${listing.rank} · ${money(listing.amount)}.`,
       path: `/creator/${listing.slug}`,
       stats,
+      listings: all,
+      extraHead: personLd,
       body: `<p class="muted"><a href="/">Ranking</a> ${cat ? `/ <a href="/category/${listing.category_slug}">${esc(cat.name)}</a>` : ""}</p>
         <div class="profile">
-          <div>
+          <div class="panel">
             <div class="profile-hero">
-              ${avatarHtml(listing.slug, listing.display_name)}
+              ${avatarHtml(listing.slug, listing.display_name, "avatar", { lazy: false })}
               <div>
-                <p class="muted" style="margin:0;font-weight:700">#${listing.rank} · ${money(listing.amount)}</p>
+                <p class="eyebrow">#${listing.rank} · ${money(listing.amount)}</p>
                 <h1>${esc(listing.display_name)}</h1>
                 <p class="muted">${esc(listing.tagline)}</p>
               </div>
             </div>
             <p style="margin-top:1rem">${esc(listing.description)}</p>
             <p class="muted" style="margin-top:.6rem">${esc(listing.handle)} · ${esc(COUNTRY_MAP[listing.country] || "")} · ${esc(PLATFORM_MAP[listing.platform] || "")}</p>
-            <div style="margin-top:1rem">${voteForms(listing, next)}</div>
+            <div class="stat-row">
+              <div><b>${money(listing.amount)}</b><span>Total pagado</span></div>
+              <div><b>♥ ${num(listing.love)}</b><span>Queridos</span></div>
+              <div><b>✕ ${num(listing.hate)}</b><span>Hate${polar == null ? "" : ` · pol. ${polar}%`}</span></div>
+            </div>
+            <div>${voteForms(listing, next)}</div>
             <p style="margin-top:1.1rem;display:flex;flex-wrap:wrap;gap:.5rem">
               ${listing.url ? `<a class="btn ghost" href="/go/${listing.slug}">Abrir perfil</a>` : ""}
               <a class="btn" href="/claim?amount=${price}&category=${listing.category_slug}&handle=${encodeURIComponent(listing.handle)}">Superar por ${money(price)}</a>
             </p>
           </div>
-          <div class="panel">
-            <h2>Pagos</h2>
-            <ul class="list">${pays}</ul>
+          <div>
+            <div class="panel">
+              <h2>Pagos</h2>
+              <p class="hint">Historial real de cobros de esta ficha. El gráfico suma esos importes en el tiempo.</p>
+              ${sparklineSvg(series) || "<p class='muted'>Todavía no hay suficientes pagos para una curva.</p>"}
+              <ul class="list">${pays}</ul>
+            </div>
+            ${compareBlock(listing, other, { listings: all })}
           </div>
         </div>`,
     }),
@@ -711,8 +504,11 @@ app.get("/claim", (req, res) => {
   res.type("html").send(
     layout({
       title: "Reclamar",
+      description: "Reclama tu puesto en PodioSync. Stripe Checkout cobra el total (o la diferencia) en USD enteros.",
       path: "/claim",
+      nav: "claim",
       stats,
+      listings: listBoard("all"),
       flash: req.query.canceled ? "Pago cancelado. Puedes intentarlo de nuevo." : "",
       body: claimForm({
         amount: req.query.amount,
@@ -736,6 +532,7 @@ app.get("/paid", async (req, res) => {
           title: "Confirmando pago",
           path: "/paid",
           stats,
+          listings: listBoard("all"),
           body: `<h1>Confirmando el pago</h1>
             <p class="muted">Stripe todavía no marcó este pago como cobrado. Recarga en unos segundos.</p>
             <p><a class="btn" href="/paid?session_id=${esc(sessionId)}">Reintentar</a></p>`,
@@ -748,6 +545,7 @@ app.get("/paid", async (req, res) => {
           title: "Pago recibido",
           path: "/paid",
           stats,
+          listings: listBoard("all"),
           body: `<h1>Pago recibido</h1>
             <p class="muted">Stripe cobró, pero no encontramos la ficha. Escribe a soporte con el id ${esc(sessionId)}.</p>`,
         }),
@@ -759,6 +557,7 @@ app.get("/paid", async (req, res) => {
           title: "Pago recibido",
           path: "/paid",
           stats,
+          listings: listBoard("all"),
           body: `<h1>Pago recibido</h1>
             <p class="err">${esc(result.error)}</p>
             <p class="muted">El cobro está en Stripe. Id ${esc(sessionId)}.</p>
@@ -773,6 +572,7 @@ app.get("/paid", async (req, res) => {
         title: "Pago",
         path: "/paid",
         stats,
+        listings: listBoard("all"),
         body: `<h1>No se pudo confirmar</h1>
           <p class="err">${esc(publicPaymentError(err))}</p>
           <p><a class="btn" href="/claim">Volver a reclamar</a></p>`,
@@ -799,7 +599,9 @@ app.post("/claim", async (req, res) => {
       layout({
         title: "Reclamar",
         path: "/claim",
+        nav: "claim",
         stats,
+        listings: listBoard("all"),
         body: claimForm({ ...req.body, amount: req.body.targetTotal, error: quoted.error }),
       }),
     );
@@ -826,7 +628,9 @@ app.post("/claim", async (req, res) => {
         layout({
           title: "Reclamar",
           path: "/claim",
+          nav: "claim",
           stats,
+          listings: listBoard("all"),
           body: claimForm({ ...payload, amount: payload.targetTotal, error: publicPaymentError(err) }),
         }),
       );
@@ -839,7 +643,9 @@ app.post("/claim", async (req, res) => {
       layout({
         title: "Reclamar",
         path: "/claim",
+        nav: "claim",
         stats,
+        listings: listBoard("all"),
         body: claimForm({ ...payload, amount: payload.targetTotal, error: result.error }),
       }),
     );
@@ -852,16 +658,20 @@ app.get("/about", (_req, res) => {
   res.type("html").send(
     layout({
       title: "About",
+      description: "PodioSync es el ranking público de influencers de España y Latinoamérica.",
       path: "/about",
       stats,
-      body: `<h1>About</h1>
+      listings: listBoard("all"),
+      body: `<article class="page-prose">
+        <h1>About</h1>
         <p>podiosync.es es el ranking público de influencers de España y Latinoamérica. Tres tableros: el de pago (el puesto es lo que pagas), los más queridos y los de más hate.</p>
         <p>Las fichas de demostración son perfiles de ejemplo. En producción, cada creator, manager o marca reclama su propio @handle.</p>
         <div class="stats">
           <div><b>${money(stats.revenue)}</b>ingresos</div>
           <div><b>${num(stats.listings)}</b>creadores</div>
           <div><b>${num(stats.visitors)}</b>visitantes</div>
-        </div>`,
+        </div>
+      </article>`,
     }),
   );
 });
@@ -871,19 +681,25 @@ app.get("/faq", (_req, res) => {
   res.type("html").send(
     layout({
       title: "FAQ",
+      description: "Preguntas frecuentes sobre pagos, votos y tableros de PodioSync.",
       path: "/faq",
       stats,
-      body: `<h1>FAQ</h1>
+      listings: listBoard("all"),
+      body: `<article class="page-prose">
+        <h1>FAQ</h1>
         <h2>¿Cómo funciona?</h2>
-        <p class="muted">Pegas un @handle, eliges categoría y pagas. Mínimo $10. Quitar el #1 cuesta $5 más que el actual. A igual monto, gana quien llegó primero.</p>
+        <p>Pegas un @handle, eliges categoría y pagas. Mínimo $10. Quitar el #1 cuesta $5 más que el actual. A igual monto, gana quien llegó primero.</p>
         <h2>¿Más queridos y más hate?</h2>
-        <p class="muted">Son tableros de voto del público, no de pago. Un voto por persona y creador. Puedes cambiar de querido a hate (o al revés). No hay reembolsos de votos.</p>
+        <p>Son tableros de voto del público, no de pago. Un voto por persona y creador. Puedes cambiar de querido a hate (o al revés). No hay reembolsos de votos.</p>
+        <h2>¿Qué es la polarización?</h2>
+        <p>I = 100 × 2 × min(votos ♥, votos ✕) / (♥ + ✕). Cero es consenso; cien es empate. Solo aparece si hay votos.</p>
         <h2>¿All-time, Hoy y Diario?</h2>
-        <p class="muted">Un pago cuenta en todos los tableros. All-time no caduca. Hoy es 24 h. Diario es el día UTC.</p>
+        <p>Un pago cuenta en todos los tableros. All-time no caduca. Hoy es 24 h. Diario es el día UTC.</p>
         <h2>¿Hay reembolsos?</h2>
-        <p class="muted">No. Pagos finales.</p>
+        <p>No. Pagos finales.</p>
         <h2>¿El pago es real?</h2>
-        <p class="muted">${stripeEnabled() ? "Sí. Stripe Checkout. El puesto se asigna al confirmar el pago (página de éxito + webhook)." : "En esta instalación corre en modo demo. Añade STRIPE_SECRET_KEY para cobrar."}</p>`
+        <p>${stripeEnabled() ? "Sí. Stripe Checkout. El puesto se asigna al confirmar el pago (página de éxito + webhook)." : "En esta instalación corre en modo demo. Añade STRIPE_SECRET_KEY para cobrar."}</p>
+      </article>`,
     }),
   );
 });
@@ -893,9 +709,12 @@ app.get("/rules", (_req, res) => {
   res.type("html").send(
     layout({
       title: "Reglas",
+      description: "Reglas del ranking de pago de PodioSync.",
       path: "/rules",
       stats,
-      body: `<h1>Reglas</h1>
+      listings: listBoard("all"),
+      body: `<article class="page-prose">
+        <h1>Reglas</h1>
         <p>PodioSync es un ranking público. El rank es lo que pagas — nada más.</p>
         <ul>
           <li>Fichas nuevas: dólares enteros, mínimo $10, máximo $999,999.</li>
@@ -903,7 +722,8 @@ app.get("/rules", (_req, res) => {
           <li>A igual monto, se queda arriba quien llegó primero.</li>
           <li>Si ya estás, el checkout solo cobra la diferencia.</li>
           <li>Un @handle es una sola ficha.</li>
-        </ul>`,
+        </ul>
+      </article>`,
     }),
   );
 });
