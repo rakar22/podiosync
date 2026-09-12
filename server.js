@@ -274,14 +274,16 @@ app.get("/", (req, res) => {
           <div class="hero-actions">
             <a class="btn" href="#ranking">Explorar ranking</a>
             <a class="btn ghost" href="/search" data-search-open>Buscar influencer</a>
-            ${board === "all" ? `<a class="btn ghost" href="/claim?amount=${take}">Reclamar #1 por ${money(take)}</a>` : ""}
           </div>
         </div>
         <div class="now-card">
           <p class="eyebrow">Ahora mismo</p>
           <p class="name">${top ? `#${top.rank} ${esc(top.display_name)}` : "Sin #1"}</p>
           <p class="muted">${top ? scoreLabel(top, board) : "—"} · ${num(stats.listings)} perfiles</p>
-          ${top ? `<p style="margin-top:1rem"><a class="btn" href="/creator/${esc(top.slug)}">Ver perfil</a></p>` : ""}
+          ${top ? `<p class="hero-actions" style="margin-top:1rem">
+            <a class="btn" href="/creator/${esc(top.slug)}">Ver perfil</a>
+            ${board === "all" || board === "today" || board === "daily" ? `<a class="btn ghost" href="/claim?amount=${take}">Reclamar #1 por ${money(take)}</a>` : ""}
+          </p>` : ""}
         </div>
       </section>
       ${board === "all" && !cat ? trendingSection(trending, board) : ""}
