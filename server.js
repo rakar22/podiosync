@@ -50,6 +50,7 @@ import {
   modeTabs,
   money,
   num,
+  officialSocials,
   podiumHtml,
   rankArticles,
   regionTabs,
@@ -666,6 +667,9 @@ app.get("/about", (_req, res) => {
         <h1>About</h1>
         <p>podiosync.es es el ranking público de influencers de España y Latinoamérica. Tres tableros: el de pago (el puesto es lo que pagas), los más queridos y los de más hate.</p>
         <p>Las fichas de demostración son perfiles de ejemplo. En producción, cada creator, manager o marca reclama su propio @handle.</p>
+        <h2>Síguenos</h2>
+        <p>El perfil oficial de PodioSync está en TikTok. Ahí van clips del ranking, queridos y hate.</p>
+        ${officialSocials()}
         <div class="stats">
           <div><b>${money(stats.revenue)}</b>ingresos</div>
           <div><b>${num(stats.listings)}</b>creadores</div>
