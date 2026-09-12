@@ -71,7 +71,7 @@ Node.js → Environment variables. Añade:
   PUBLIC_URL=https://tu-dominio.com
   STRIPE_SECRET_KEY=sk_test_...     (o sk_live_...)
   STRIPE_WEBHOOK_SECRET=whsec_...
-  EMPTY_BOARD=true                  (cuando lances de verdad)
+  EMPTY_BOARD=true                  (opcional: ranking vacío; no lo pongas si conservas el tablero)
 
 Restart después de guardar.
 
@@ -110,10 +110,13 @@ Tu cuenta conectada: utilix.cloud. Usa sk_test_ para las pruebas;
 sk_live_ cobra dinero de verdad.
 
 ------------------------------------------------
-F. Lanzar el ranking vacío (producción)
+F. Vaciar el ranking (opcional)
 ------------------------------------------------
-Los 45 perfiles son FICTICIOS, para que el tablero no se vea muerto
-mientras pruebas. El día del launch:
+El arranque por defecto conserva el tablero (seed / data/board.json).
+Ese ranking de arranque es el podio de pago inicial. No lo borres
+el día del launch si quieres mantenerlo.
+
+Si ops quiere un ranking vacío:
 
   1. Stop de la app
   2. Borra data/board.json (y data/pending.json si existe)
