@@ -53,7 +53,7 @@ PORT                  lo pone Hostinger
 PUBLIC_URL            https://podiosync.es
 STRIPE_SECRET_KEY     sk_live_... o sk_test_...  (opcional)
 STRIPE_WEBHOOK_SECRET whsec_...                  (opcional)
-EMPTY_BOARD           true                       (lanza el ranking vacío)
+EMPTY_BOARD           true                       (opcional: ranking vacío)
 
 SIN Stripe la app corre en MODO DEMO: el pago se simula y el ranking
 cambia al instante. Perfecto para probar.
@@ -70,11 +70,12 @@ Webhook de Stripe:
 3. Datos
 ------------------------------------------------
 Los rankings se guardan en data/board.json (se crea solo).
-Haz backup de esa carpeta. El primer arranque carga 45 creators de
-ejemplo (ficticios) para que el tablero no salga vacío.
+Haz backup de esa carpeta. El primer arranque carga el ranking de
+arranque (totales y votos de seed) si no hay tablero guardado.
 
-Para LANZAR DE VERDAD: EMPTY_BOARD=true y borra data/board.json
-si ya se había generado.
+Por defecto NO vacíes el board el día del launch.
+Si ops quiere un ranking vacío: para la app, borra data/board.json
+y pon EMPTY_BOARD=true. Luego arranca de nuevo.
 
 ------------------------------------------------
 4. Dominio

@@ -50,7 +50,6 @@ import {
   modeTabs,
   money,
   num,
-  officialSocials,
   podiumHtml,
   rankArticles,
   regionTabs,
@@ -59,6 +58,9 @@ import {
   sparklineSvg,
   trustSection,
   trendingSection,
+  aboutPage,
+  faqPage,
+  rulesPage,
   voteForms,
   catCover,
   CATEGORY_MAP as CAT_MAP,
@@ -663,19 +665,7 @@ app.get("/about", (_req, res) => {
       path: "/about",
       stats,
       listings: listBoard("all"),
-      body: `<article class="page-prose">
-        <h1>About</h1>
-        <p>podiosync.es es el ranking público de influencers de España y Latinoamérica. Tres tableros: el de pago (el puesto es lo que pagas), los más queridos y los de más hate.</p>
-        <p>Las fichas de demostración son perfiles de ejemplo. En producción, cada creator, manager o marca reclama su propio @handle.</p>
-        <h2>Síguenos</h2>
-        <p>El perfil oficial de PodioSync está en TikTok. Ahí van clips del ranking, queridos y hate.</p>
-        ${officialSocials()}
-        <div class="stats">
-          <div><b>${money(stats.revenue)}</b>ingresos</div>
-          <div><b>${num(stats.listings)}</b>creadores</div>
-          <div><b>${num(stats.visitors)}</b>visitantes</div>
-        </div>
-      </article>`,
+      body: aboutPage(stats),
     }),
   );
 });
@@ -689,21 +679,7 @@ app.get("/faq", (_req, res) => {
       path: "/faq",
       stats,
       listings: listBoard("all"),
-      body: `<article class="page-prose">
-        <h1>FAQ</h1>
-        <h2>¿Cómo funciona?</h2>
-        <p>Pegas un @handle, eliges categoría y pagas. Mínimo $10. Quitar el #1 cuesta $5 más que el actual. A igual monto, gana quien llegó primero.</p>
-        <h2>¿Más queridos y más hate?</h2>
-        <p>Son tableros de voto del público, no de pago. Un voto por persona y creador. Puedes cambiar de querido a hate (o al revés). No hay reembolsos de votos.</p>
-        <h2>¿Qué es la polarización?</h2>
-        <p>I = 100 × 2 × min(votos ♥, votos ✕) / (♥ + ✕). Cero es consenso; cien es empate. Solo aparece si hay votos.</p>
-        <h2>¿All-time, Hoy y Diario?</h2>
-        <p>Un pago cuenta en todos los tableros. All-time no caduca. Hoy es 24 h. Diario es el día UTC.</p>
-        <h2>¿Hay reembolsos?</h2>
-        <p>No. Pagos finales.</p>
-        <h2>¿El pago es real?</h2>
-        <p>${stripeEnabled() ? "Sí. Stripe Checkout. El puesto se asigna al confirmar el pago (página de éxito + webhook)." : "En esta instalación corre en modo demo. Añade STRIPE_SECRET_KEY para cobrar."}</p>
-      </article>`,
+      body: faqPage(),
     }),
   );
 });
@@ -717,17 +693,7 @@ app.get("/rules", (_req, res) => {
       path: "/rules",
       stats,
       listings: listBoard("all"),
-      body: `<article class="page-prose">
-        <h1>Reglas</h1>
-        <p>PodioSync es un ranking público. El rank es lo que pagas — nada más.</p>
-        <ul>
-          <li>Fichas nuevas: dólares enteros, mínimo $10, máximo $999,999.</li>
-          <li>Quitar el #1: al menos $5 más que el actual.</li>
-          <li>A igual monto, se queda arriba quien llegó primero.</li>
-          <li>Si ya estás, el checkout solo cobra la diferencia.</li>
-          <li>Un @handle es una sola ficha.</li>
-        </ul>
-      </article>`,
+      body: rulesPage(),
     }),
   );
 });
