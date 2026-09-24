@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { seedEditorialCompanies } from "./seed-companies";
 
 mkdirSync("data", { recursive: true });
 const prisma = new PrismaClient();
@@ -325,7 +326,8 @@ async function main() {
     console.log("Sin ADMIN_EMAIL y ADMIN_PASSWORD: no se crea administrador.");
   }
 
-  console.log("Seed estructural listo. No se han creado empresas.");
+  const editorial = await seedEditorialCompanies(prisma);
+  console.log(`Seed estructural listo. Fichas editoriales: ${editorial.created} nuevas, ${editorial.skipped} ya presentes.`);
 }
 
 main()
