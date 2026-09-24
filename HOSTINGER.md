@@ -12,9 +12,7 @@ Hostinger ejecuta cada build en una carpeta versionada:
 
 `/home/u591947527/domains/podiosync.es/hbuilds/versions/<uuid>/nodejs/`
 
-`DATABASE_URL=file:../data/techpodio.db` abre el archivo **dentro** de esa versión. Prisma responde `Error code 14: Unable to open the database file` y el sitio devuelve 500.
-
-En hPanel, sin comillas:
+En hPanel, sin comillas, la `DATABASE_URL` recomendada es la ruta absoluta durable (fuera de `hbuilds` y fuera de `public_html`):
 
 ```
 DATABASE_URL=file:/home/u591947527/domains/podiosync.es/data/techpodio.db
@@ -26,7 +24,13 @@ Opcional, el mismo archivo:
 SQLITE_PATH=/home/u591947527/domains/podiosync.es/data/techpodio.db
 ```
 
-`server.js` y `npm run build` crean el directorio padre antes de que Prisma conecte. Si la variable sigue siendo relativa y el proceso está bajo `hbuilds/versions/.../nodejs`, el código la reescribe a esa ruta absoluta. El archivo queda **fuera** de la versión y sobrevive al siguiente deploy.
+`file:../data/techpodio.db` no es durable por sí sola. Sin el reescritor abre el archivo dentro de la versión, Prisma responde `Error code 14: Unable to open the database file` y el sitio devuelve 500. El reescritor de la PR #10 la mapea a la ruta absoluta de arriba solo cuando el proceso corre bajo `hbuilds/versions/.../nodejs`.
+
+`server.js` y `npm run build` crean el directorio padre antes de que Prisma conecte.
+
+No apuntes `DATABASE_URL` a `public_html/data/techpodio.db`. Un deploy puede dejar ese archivo en 0 bytes (pasó tras la PR #10). Las subidas TUS solo llegan a `public_html`, y un cron de Hostinger puede copiar de ahí a la ruta durable.
+
+Si al arrancar (y en el build) el SQLite durable no existe o pesa menos de 1 KB, y `<dominio>/public_html/data/techpodio.db` tiene tamaño real, el proceso copia ese fallback a la ruta durable antes de que Prisma abra la base y escribe una línea en el log. La copia es idempotente: un archivo durable de 1 KB o más no se sustituye, tampoco si `public_html` está vacío. Si ninguno de los dos sirve, solo se crea el directorio y se registra la ruta. No se inventan datos.
 
 Postgres: pon `DATABASE_URL=postgresql://USUARIO:CLAVE@HOST:5432/NOMBRE` y no definas `SQLITE_PATH`. No reutilices la migración SQLite `20260924100000_init`; genera una nueva.
 
