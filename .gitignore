@@ -1,4 +1,14 @@
 node_modules/
-data/board.json
-data/pending.json
+.next/
+out/
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+.env
+.env.local
+.env.*.local
 .DS_Store
+*.log
+npm-debug.log*
+.vercel
