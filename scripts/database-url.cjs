@@ -2,6 +2,9 @@ const fs = require("fs");
 const path = require("path");
 
 const DEFAULT_HOSTINGER_SQLITE = "/home/u591947527/domains/podiosync.es/data/techpodio.db";
+const SQLITE_FILENAME = "techpodio.db";
+// A real Prisma SQLite file is many KB. 0-byte and header-only files are not.
+const MIN_SQLITE_BYTES = 1024;
 
 function isPostgresUrl(url) {
   return /^postgres(ql)?:\/\//i.test(url);
@@ -63,6 +66,66 @@ function resolveDatabaseConfig({ databaseUrl = "", sqlitePath = "", cwd = "" } =
   return { kind: "sqlite", databaseUrl: `file:${filePath}`, filePath };
 }
 
+function sqliteFileSize(filePath) {
+  try {
+    const stat = fs.statSync(filePath);
+    return stat.isFile() ? stat.size : -1;
+  } catch (error) {
+    if (error && error.code === "ENOENT") return -1;
+    throw error;
+  }
+}
+
+function publicHtmlSqliteFallback(filePath) {
+  if (!filePath) return null;
+  const resolved = path.resolve(String(filePath));
+  if (path.basename(resolved) !== SQLITE_FILENAME) return null;
+  const segments = resolved.split(path.sep);
+  if (segments.includes("hbuilds") || segments.includes("public_html")) return null;
+  if (path.basename(path.dirname(resolved)) !== "data") return null;
+  const domainRoot = path.dirname(path.dirname(resolved));
+  const fallback = path.join(domainRoot, "public_html", "data", SQLITE_FILENAME);
+  if (path.resolve(fallback) === resolved) return null;
+  return fallback;
+}
+
+function syncSqliteSidecar(source, dest) {
+  for (const suffix of ["-wal", "-shm"]) {
+    const from = `${source}${suffix}`;
+    const to = `${dest}${suffix}`;
+    if (sqliteFileSize(from) > 0) fs.copyFileSync(from, to);
+    else fs.rmSync(to, { force: true });
+  }
+}
+
+// Copy <domainRoot>/public_html/data/techpodio.db onto the durable file only
+// when the durable file is missing or under 1KB and the fallback has real size.
+// A healthy durable database is never replaced.
+function bootstrapSqliteFromPublicHtml(filePath) {
+  const fallback = publicHtmlSqliteFallback(filePath);
+  if (!fallback) return { copied: false };
+  if (sqliteFileSize(filePath) >= MIN_SQLITE_BYTES) return { copied: false };
+
+  const fallbackSize = sqliteFileSize(fallback);
+  if (fallbackSize < MIN_SQLITE_BYTES) return { copied: false };
+
+  const directory = path.dirname(filePath);
+  fs.mkdirSync(directory, { recursive: true });
+  const tmp = path.join(directory, `.${SQLITE_FILENAME}.${process.pid}.partial`);
+  let copied = false;
+  try {
+    fs.copyFileSync(fallback, tmp);
+    if (sqliteFileSize(tmp) < MIN_SQLITE_BYTES) return { copied: false };
+    fs.renameSync(tmp, filePath);
+    copied = true;
+  } finally {
+    if (!copied) fs.rmSync(tmp, { force: true });
+  }
+  syncSqliteSidecar(fallback, filePath);
+  console.log(`SQLite bootstrap: copied public_html fallback (${fallbackSize} bytes) to ${filePath}`);
+  return { copied: true, bytes: fallbackSize };
+}
+
 function applyDatabaseEnv(env = process.env, cwd = process.cwd()) {
   const resolved = resolveDatabaseConfig({
     databaseUrl: env.DATABASE_URL,
@@ -71,6 +134,7 @@ function applyDatabaseEnv(env = process.env, cwd = process.cwd()) {
   });
   if (resolved.filePath) {
     fs.mkdirSync(path.dirname(resolved.filePath), { recursive: true });
+    bootstrapSqliteFromPublicHtml(resolved.filePath);
   }
   if (resolved.databaseUrl) env.DATABASE_URL = resolved.databaseUrl;
   return resolved;
@@ -78,7 +142,9 @@ function applyDatabaseEnv(env = process.env, cwd = process.cwd()) {
 
 module.exports = {
   DEFAULT_HOSTINGER_SQLITE,
+  MIN_SQLITE_BYTES,
   resolveDatabaseConfig,
   applyDatabaseEnv,
+  bootstrapSqliteFromPublicHtml,
   domainSqliteFromVersionedDir,
 };
