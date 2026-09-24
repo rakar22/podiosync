@@ -61,23 +61,30 @@ Si el hueco se ocupa entre el inicio del checkout y la confirmación, el pago no
 
 Sin `STRIPE_SECRET_KEY` el checkout no se finge: responde que Stripe no está configurado.
 
-Webhook de producción: `https://podiosync.es/api/webhooks/stripe` (también escucha `/webhook/stripe`).
+Webhooks de producción (registra los dos; el host es el de `SITE_URL`, aquí el ejemplo actual):
+
+- `https://podiosync.es/api/webhooks/stripe`
+- `https://podiosync.es/webhook/stripe`
+
+Eventos: `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.expired`.
 
 ## Caducidad
 
-Al abrir un ranking se liberan reservas viejas y se caducan campañas vencidas. Además:
+Al abrir un ranking se liberan reservas de más de 45 minutos y se caducan campañas vencidas. Además:
 
 ```bash
-curl -H "Authorization: Bearer $CRON_SECRET" https://podiosync.es/api/cron/expire
+curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://podiosync.es/api/cron/expire
 ```
 
-En Hostinger, un cron diario con ese `curl` basta. Si `RESEND_API_KEY` y `RESEND_FROM` existen, los avisos de lista de espera se envían. Si no, quedan en la bandeja (`notification_outbox`) y el admin ve el contador.
+En Hostinger, un cron diario con ese `curl` basta. Si `RESEND_API_KEY` y `RESEND_FROM` existen, los avisos de lista de espera se envían. Si no, quedan en `notification_outbox`. `/es/admin/avisos` los lista y no marca un envío que Resend no ha aceptado.
+
+`/health` dice si Stripe, el secreto de webhook, la base, la identidad legal, el cron y Resend están configurados, sin devolver secretos.
 
 ## Rutas
 
 Públicas, en `/es` y `/en`: inicio, `/empresas`, `/empresa/[slug]`, categorías, países, ciudades, tecnologías, `/rankings/...`, `/ia`, `/comparar`, `/noticias`, `/senales`, `/precios`, `/para-empresas`, `/buscar`, landings `/empresas/[categoria]/[ubicacion]`, legales y contacto.
 
-Cuenta: `/login`, `/register`, `/reclamar/[slug]`, `/dashboard`, `/admin` (inventario en `/admin/inventory`, precios en `/admin/precios`).
+Cuenta: `/login`, `/register`, `/reclamar/[slug]`, `/dashboard`, `/admin` (inventario en `/admin/inventory`, precios en `/admin/precios`, avisos en `/admin/avisos`).
 
 API de lectura: `/api/companies`, `/api/categories`, `/api/countries`, `/api/cities`, `/api/technologies`, `/api/rankings`, `/api/search`, `/api/sponsored-positions`. Salud: `/health`.
 

@@ -3,10 +3,12 @@ import { notFound } from "next/navigation";
 import { AdSlot } from "@/components/ad-slot";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { Flash } from "@/components/flash";
+import { JsonLd } from "@/components/json-ld";
 import { RankingBoard } from "@/components/ranking-board";
 import { loadBoard, listCategories, listCountries } from "@/lib/catalog";
 import { categoryName, countryName, isLocale, t } from "@/lib/i18n";
-import { meta } from "@/lib/seo";
+import { absolute, meta } from "@/lib/seo";
+import { siteName } from "@/lib/site";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string; slug?: string[] }> }) {
   const { locale, slug = [] } = await params;
@@ -62,6 +64,14 @@ export default async function RankingsPage({ params, searchParams }: { params: P
       {!city ? (
         <div className="badges">{country.cities.map((item) => <Link key={item.id} className="badge" href={`/${locale}/rankings/${category.slug}/${country.slug}/${item.slug}`}>{item.name}</Link>)}</div>
       ) : null}
+      <JsonLd data={[
+        { "@context": "https://schema.org", "@type": "BreadcrumbList", itemListElement: [
+          { "@type": "ListItem", position: 1, name: siteName(), item: absolute(`/${locale}`) },
+          { "@type": "ListItem", position: 2, name: "Rankings", item: absolute(`/${locale}/rankings`) },
+          { "@type": "ListItem", position: 3, name: `${categoryName(locale, category)} · ${place}` },
+        ] },
+        { "@context": "https://schema.org", "@type": "ItemList", name: `${categoryName(locale, category)} · ${place}`, itemListElement: board.sponsored.map((slot, index) => ({ "@type": "ListItem", position: index + 1, name: slot.position })) },
+      ]} />
       <RankingBoard locale={locale} board={board} categoryId={category.id} countryId={country.id} cityId={city?.id} />
       <p className="tiny">{t(locale, "La caducidad se revisa al abrir el ranking y con el cron /api/cron/expire.", "Expiry is checked when the ranking opens and by the /api/cron/expire job.")}</p>
       <AdSlot slot="ranking-board" format="sidebar" />

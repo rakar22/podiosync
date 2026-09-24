@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { ui } from "@/lib/i18n";
-import { legalIdentity } from "@/lib/site";
+import { t, ui } from "@/lib/i18n";
+import { legalIdentity, siteClaim, siteName } from "@/lib/site";
 
 export function SiteFooter({ locale }: { locale: string }) {
   const labels = ui(locale);
@@ -9,9 +9,9 @@ export function SiteFooter({ locale }: { locale: string }) {
     <footer className="site-footer">
       <div className="wrap footer-grid">
         <div>
-          <strong>TECHPODIO</strong>
-          <p className="tiny">{labels.claimLine}</p>
-          <p className="tiny">{legal.name || (locale === "en" ? "Legal entity not configured." : "Identidad legal sin configurar.")} {legal.email}</p>
+          <strong>{siteName()}</strong>
+          <p className="tiny">{siteClaim(locale)}</p>
+          <p className="tiny">{legal.configured ? `${legal.name} · ${legal.email}` : t(locale, "Identidad legal pendiente de configuración.", "Legal identity pending configuration.")} {legal.configured ? "" : legal.email}</p>
         </div>
         <div style={{ display: "grid", gap: 6 }}>
           <Link href={`/${locale}/privacidad`}>{labels.privacy}</Link>

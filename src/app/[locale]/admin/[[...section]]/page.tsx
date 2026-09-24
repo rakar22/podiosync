@@ -11,16 +11,16 @@ import { statusLabel } from "@/lib/labels";
 import { formatMoney } from "@/lib/money";
 import { POSITION_KEYS } from "@/lib/positions";
 import { meta } from "@/lib/seo";
-import { SIGNAL_KINDS } from "@/lib/site";
-import { stripeMode } from "@/lib/stripe";
-import { createNews, createSignal, mergeCompanies, reviewClaim, savePricingRule, setUserRole, setVerification } from "@/server/actions";
+import { legalIdentity, SIGNAL_KINDS, siteName } from "@/lib/site";
+import { stripeEnabled, stripeMode, webhookSecret } from "@/lib/stripe";
+import { createNews, createSignal, flushOutbox, mergeCompanies, reviewClaim, savePricingRule, setUserRole, setVerification } from "@/server/actions";
 
-const sections = ["inventory", "precios", "empresas", "campanas", "reclamaciones", "fusionar", "usuarios", "noticias", "senales", "eventos"] as const;
+const sections = ["inventory", "precios", "avisos", "empresas", "campanas", "reclamaciones", "fusionar", "usuarios", "noticias", "senales", "eventos"] as const;
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   if (!isLocale(locale)) return {};
-  return meta(locale, "Admin", "TECHPODIO", "/admin", false);
+  return meta(locale, "Admin", siteName(), "/admin", false);
 }
 
 export default async function AdminPage({ params, searchParams }: { params: Promise<{ locale: string; section?: string[] }>; searchParams: Promise<Record<string, string | undefined>> }) {
@@ -32,18 +32,20 @@ export default async function AdminPage({ params, searchParams }: { params: Prom
   if (!user) redirect(`/${locale}/login?next=/${locale}/admin`);
   if (user.role !== "ADMIN") redirect(`/${locale}/`);
   const query = await searchParams;
-  const links = ["", "inventory", "precios", "empresas", "campanas", "reclamaciones", "fusionar", "usuarios", "noticias", "senales", "eventos"];
+  const links = ["", "inventory", "precios", "avisos", "empresas", "campanas", "reclamaciones", "fusionar", "usuarios", "noticias", "senales", "eventos"];
   return (
     <div className="wrap dash">
       <h1>Admin</h1>
-      <p className="tiny">Stripe: {stripeMode()} · {user.email}</p>
+      <SetupBanner locale={locale} />
+      <p className="tiny">{user.email}</p>
       <nav className="dash-nav">
         {links.map((href) => <Link key={href || "home"} href={`/${locale}/admin${href ? `/${href}` : ""}`} aria-current={key === (href || "resumen") ? "page" : undefined}>{href || t(locale, "Resumen", "Overview")}</Link>)}
       </nav>
-      <Flash locale={locale} ok={query.ok} error={query.error} />
+      {query.ok === "mail" ? <MailResult locale={locale} query={query} /> : <Flash locale={locale} ok={query.ok} error={query.error} />}
       {key === "resumen" ? <Overview locale={locale} /> : null}
       {key === "inventory" ? <Inventory locale={locale} query={query} /> : null}
       {key === "precios" ? <Pricing locale={locale} /> : null}
+      {key === "avisos" ? <Outbox locale={locale} /> : null}
       {key === "empresas" ? <Companies locale={locale} /> : null}
       {key === "campanas" ? <Campaigns locale={locale} /> : null}
       {key === "reclamaciones" ? <Claims locale={locale} /> : null}
@@ -53,6 +55,57 @@ export default async function AdminPage({ params, searchParams }: { params: Prom
       {key === "senales" ? <Signals locale={locale} /> : null}
       {key === "eventos" ? <Events locale={locale} /> : null}
     </div>
+  );
+}
+
+function SetupBanner({ locale }: { locale: string }) {
+  const legal = legalIdentity();
+  const items = [
+    [legal.configured, t(locale, "Identidad legal (nombre, identificador fiscal y domicilio)", "Legal identity (name, tax id, and address)")],
+    [stripeEnabled(), t(locale, "Clave de Stripe", "Stripe key")],
+    [Boolean(webhookSecret()), t(locale, "Secreto del webhook de Stripe", "Stripe webhook secret")],
+    [Boolean(process.env.CRON_SECRET?.trim()), "CRON_SECRET"],
+    [Boolean(process.env.RESEND_API_KEY?.trim() && process.env.RESEND_FROM?.trim()), t(locale, "Resend (avisos de lista de espera)", "Resend (waitlist notices)")],
+  ] as const;
+  const pending = items.filter((item) => !item[0]);
+  if (!pending.length) return <p className="success">{t(locale, "Checklist de producción completa.", "Production checklist is complete.")}</p>;
+  return (
+    <div className="notice">
+      <strong>{t(locale, "Pendiente de configuración", "Pending configuration")}</strong>
+      <ul>{pending.map((item) => <li key={item[1]}>{item[1]}</li>)}</ul>
+    </div>
+  );
+}
+
+function MailResult({ locale, query }: { locale: string; query: Record<string, string | undefined> }) {
+  const sent = Number(query.sent || 0);
+  const pending = Number(query.pending || 0);
+  if (sent > 0) {
+    return <p className="success">{t(locale, `Resend aceptó ${sent} aviso(s). Siguen en cola: ${pending}.`, `Resend accepted ${sent} notice(s). Still queued: ${pending}.`)}</p>;
+  }
+  return (
+    <p className="notice">
+      {query.mail === "off"
+        ? t(locale, `Ningún email se ha enviado. Resend no está configurado. Avisos en cola: ${pending}.`, `No email was sent. Resend is not configured. Notices still queued: ${pending}.`)
+        : t(locale, `Ningún email se ha enviado en este intento. Avisos en cola: ${pending}.`, `No email was sent on this attempt. Notices still queued: ${pending}.`)}
+    </p>
+  );
+}
+
+function PaymentsPanel({ locale }: { locale: string }) {
+  const rows = [
+    [t(locale, "Modo", "Mode"), stripeMode()],
+    [t(locale, "Clave secreta", "Secret key"), stripeEnabled() ? t(locale, "Presente", "Present") : t(locale, "Ausente", "Missing")],
+    [t(locale, "Secreto de webhook", "Webhook secret"), webhookSecret() ? t(locale, "Presente", "Present") : t(locale, "Ausente", "Missing")],
+    [t(locale, "Clave publicable", "Publishable key"), process.env.STRIPE_PUBLISHABLE_KEY?.trim() ? t(locale, "Presente", "Present") : t(locale, "Ausente", "Missing")],
+    [t(locale, "URLs", "URLs"), "/api/webhooks/stripe · /webhook/stripe"],
+  ];
+  return (
+    <section className="card section">
+      <h2>{t(locale, "Pagos", "Payments")}</h2>
+      <p className="tiny">{t(locale, "Estado de configuración. No se muestran claves.", "Setup status. Keys are not shown.")}</p>
+      <AdminTable headers={[t(locale, "Dato", "Item"), t(locale, "Estado", "Status")]} rows={rows} />
+    </section>
   );
 }
 
@@ -66,13 +119,16 @@ async function Overview({ locale }: { locale: string }) {
     prisma.contactMessage.count(),
   ]);
   return (
-    <div className="stat-row">
-      <AnalyticsCard label={t(locale, "Empresas", "Companies")} value={companies} hint={t(locale, "Cero es correcto si nadie ha publicado.", "Zero is correct if nobody has published.")} />
-      <AnalyticsCard label={t(locale, "Reglas activas", "Active rules")} value={rules} />
-      <AnalyticsCard label={t(locale, "Huecos activos", "Active slots")} value={active} />
-      <AnalyticsCard label={t(locale, "Reclamaciones", "Claims")} value={pendingClaims} />
-      <AnalyticsCard label={t(locale, "Avisos sin enviar", "Unsent notices")} value={outbox} />
-      <AnalyticsCard label={t(locale, "Contactos", "Contacts")} value={contacts} />
+    <div>
+      <div className="stat-row">
+        <AnalyticsCard label={t(locale, "Empresas", "Companies")} value={companies} hint={t(locale, "Cero es correcto si nadie ha publicado.", "Zero is correct if nobody has published.")} />
+        <AnalyticsCard label={t(locale, "Reglas activas", "Active rules")} value={rules} />
+        <AnalyticsCard label={t(locale, "Huecos activos", "Active slots")} value={active} />
+        <AnalyticsCard label={t(locale, "Reclamaciones", "Claims")} value={pendingClaims} />
+        <AnalyticsCard label={t(locale, "Avisos sin enviar", "Unsent notices")} value={outbox} />
+        <AnalyticsCard label={t(locale, "Contactos", "Contacts")} value={contacts} />
+      </div>
+      <PaymentsPanel locale={locale} />
     </div>
   );
 }
@@ -132,7 +188,7 @@ async function Pricing({ locale }: { locale: string }) {
   return (
     <div className="section">
       <h2>{t(locale, "Reglas de precio", "Pricing rules")}</h2>
-      <p className="tiny">{t(locale, "Guardar desmarca el ejemplo. La regla más específica (ciudad, luego país, luego categoría) gana.", "Saving clears the example flag. The most specific rule (city, then country, then category) wins.")}</p>
+      <p className="tiny">{t(locale, "Guardar desmarca el ejemplo y deja un registro de auditoría. La regla más específica (ciudad, luego país, luego categoría) gana. Precio entre 100 y 10.000.000 céntimos. Duración de 1 a 3650 días. Moneda de tres letras. Una ciudad exige país.", "Saving clears the example flag and writes an audit row. The most specific rule (city, then country, then category) wins. Price between 100 and 10,000,000 cents. Duration from 1 to 3650 days. Three-letter currency. A city requires a country.")}</p>
       <form action={savePricingRule} className="filters">
         <input type="hidden" name="locale" value={locale} />
         <select className="select" name="position">{POSITION_KEYS.map((position) => <option key={position} value={position}>{positionLabel(locale, position)}</option>)}</select>
@@ -146,7 +202,7 @@ async function Pricing({ locale }: { locale: string }) {
         <button className="btn btn-small" type="submit">{t(locale, "Crear regla", "Create rule")}</button>
       </form>
       {rules.map((rule) => (
-        <form key={rule.id} action={savePricingRule} className="card filters">
+        <form key={rule.id} action={savePricingRule} className="card price-row">
           <input type="hidden" name="locale" value={locale} />
           <input type="hidden" name="id" value={rule.id} />
           <input type="hidden" name="categoryId" value={rule.categoryId || ""} />
@@ -162,6 +218,59 @@ async function Pricing({ locale }: { locale: string }) {
           <button className="btn btn-small" type="submit">{t(locale, "Guardar", "Save")}</button>
         </form>
       ))}
+      <PricingAudit locale={locale} />
+    </div>
+  );
+}
+
+async function PricingAudit({ locale }: { locale: string }) {
+  const rows = await prisma.auditLog.findMany({
+    where: { action: "pricing.save" },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+    include: { user: true },
+  });
+  return (
+    <section className="section">
+      <h3>{t(locale, "Auditoría de precios", "Pricing audit")}</h3>
+      {rows.length ? (
+        <AdminTable
+          headers={[t(locale, "Cuándo", "When"), t(locale, "Quién", "Who"), t(locale, "Regla", "Rule"), t(locale, "Detalle", "Detail")]}
+          rows={rows.map((row) => [row.createdAt.toISOString().slice(0, 16).replace("T", " "), row.user?.email || "—", row.entityId || "—", row.meta || "—"])}
+        />
+      ) : <p className="muted">{t(locale, "Todavía no hay cambios de precio.", "There are no price changes yet.")}</p>}
+    </section>
+  );
+}
+
+async function Outbox({ locale }: { locale: string }) {
+  const [pending, recent, alerts] = await Promise.all([
+    prisma.notificationOutbox.findMany({ where: { sentAt: null }, orderBy: { createdAt: "desc" }, take: 50 }),
+    prisma.notificationOutbox.findMany({ where: { sentAt: { not: null } }, orderBy: { sentAt: "desc" }, take: 20 }),
+    prisma.waitlistAlert.findMany({ orderBy: { createdAt: "desc" }, take: 30, include: { category: true, country: true, city: true } }),
+  ]);
+  const resend = Boolean(process.env.RESEND_API_KEY?.trim() && process.env.RESEND_FROM?.trim());
+  return (
+    <div className="section">
+      <h2>{t(locale, "Avisos de lista de espera", "Waitlist notices")}</h2>
+      <p className="tiny">
+        {resend
+          ? t(locale, "Resend está configurado. El botón intenta el envío real. Si la API no acepta el mensaje, sigue en cola.", "Resend is configured. The button attempts a real send. If the API does not accept the message, it stays queued.")
+          : t(locale, "Resend no está configurado. Los avisos permanecen en cola. Este botón no marca nada como enviado.", "Resend is not configured. Notices stay queued. This button does not mark anything as sent.")}
+      </p>
+      <form action={flushOutbox}>
+        <input type="hidden" name="locale" value={locale} />
+        <button className="btn btn-small" type="submit">{t(locale, "Intentar envío", "Try sending")}</button>
+      </form>
+      <h3>{t(locale, "En cola", "Queued")} ({pending.length})</h3>
+      <AdminTable headers={["Email", t(locale, "Asunto", "Subject"), t(locale, "Creado", "Created")]} rows={pending.map((row) => [row.toEmail, row.subject, row.createdAt.toISOString().slice(0, 16).replace("T", " ")])} />
+      <h3>{t(locale, "Enviados por Resend", "Sent by Resend")}</h3>
+      <AdminTable headers={["Email", t(locale, "Asunto", "Subject"), t(locale, "Enviado", "Sent")]} rows={recent.map((row) => [row.toEmail, row.subject, row.sentAt ? row.sentAt.toISOString().slice(0, 16).replace("T", " ") : "—"])} />
+      <h3>{t(locale, "Altas de lista", "Waitlist signups")}</h3>
+      <AdminTable
+        headers={["Email", t(locale, "Hueco", "Slot"), t(locale, "Encolado", "Queued")]}
+        rows={alerts.map((alert) => [alert.email, `${alert.position} · ${categoryName(locale, alert.category)} · ${alert.city?.name || countryName(locale, alert.country)}`, alert.notified ? t(locale, "Pasó a la bandeja", "Moved to the outbox") : t(locale, "Aún no", "Not yet")])}
+      />
     </div>
   );
 }

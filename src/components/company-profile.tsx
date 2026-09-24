@@ -109,7 +109,7 @@ export function CompanyProfile({
       </article>
       <aside className="panel">
         <h2>{t(locale, "Contactar", "Contact")}</h2>
-        <p className="tiny">{t(locale, "El mensaje llega a la empresa. TECHPODIO no publica reseñas.", "The message goes to the company. TECHPODIO does not publish reviews.")}</p>
+        <p className="tiny">{t(locale, "El mensaje llega a la empresa. El directorio no publica reseñas.", "The message goes to the company. The directory does not publish reviews.")}</p>
         <form action={submitLead} className="form-grid">
           <input type="hidden" name="locale" value={locale} />
           <input type="hidden" name="companyId" value={company.id} />

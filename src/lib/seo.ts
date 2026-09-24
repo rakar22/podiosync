@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import { publicOrigin } from "./site";
+import { publicOrigin, siteName } from "./site";
 
 export function meta(locale: string, title: string, description: string, path: string, index = true): Metadata {
   const base = publicOrigin();
   const canonical = `${base}/${locale}${path}`;
+  const name = siteName();
   return {
     title,
     description,
@@ -20,9 +21,14 @@ export function meta(locale: string, title: string, description: string, path: s
       title,
       description,
       url: canonical,
-      siteName: "TECHPODIO",
+      siteName: name,
       locale: locale === "en" ? "en_GB" : "es_ES",
       type: "website",
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
     },
   };
 }

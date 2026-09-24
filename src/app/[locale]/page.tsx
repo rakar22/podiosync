@@ -9,15 +9,11 @@ import { listCategories, listCountries, loadBoard } from "@/lib/catalog";
 import { t } from "@/lib/i18n";
 import { readLocale } from "@/lib/locale";
 import { absolute, meta } from "@/lib/seo";
+import { siteClaim, siteName } from "@/lib/site";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const locale = await readLocale(params);
-  return meta(
-    locale,
-    "TECHPODIO",
-    t(locale, "Descubre las empresas que están construyendo la tecnología de Europa.", "Discover the companies building Europe’s technology."),
-    "",
-  );
+  return meta(locale, siteName(), siteClaim(locale), "");
 }
 
 export default async function HomePage({ params }: { params: Promise<{ locale: string }> }) {
@@ -48,14 +44,14 @@ export default async function HomePage({ params }: { params: Promise<{ locale: s
           {
             "@context": "https://schema.org",
             "@type": "Organization",
-            name: "TECHPODIO",
+            name: siteName(),
             url: absolute(`/${locale}`),
-            description: t(locale, "Directorio B2B de empresas tecnológicas en Europa.", "B2B directory of technology companies in Europe."),
+            description: siteClaim(locale),
           },
           {
             "@context": "https://schema.org",
             "@type": "WebSite",
-            name: "TECHPODIO",
+            name: siteName(),
             url: absolute(`/${locale}`),
             potentialAction: {
               "@type": "SearchAction",
@@ -68,7 +64,7 @@ export default async function HomePage({ params }: { params: Promise<{ locale: s
       />
       <section className="hero">
         <p className="kicker">{t(locale, "España → Europa", "Spain → Europe")}</p>
-        <h1>{t(locale, "Descubre las empresas que están construyendo la tecnología de Europa.", "Discover the companies building Europe’s technology.")}</h1>
+        <h1>{siteClaim(locale)}</h1>
         <p className="lede">{t(locale, "Directorio para encontrar empresas tecnológicas y para que esas empresas ocupen una posición patrocinada — #1, #2, #3, Top 5, Destacada o Premium — a un precio fijo. Si el hueco está ocupado, no se lo quitamos a nadie.", "A directory for finding technology companies, and for those companies to hold a sponsored position — #1, #2, #3, Top 5, Featured, or Premium — at a fixed price. If the slot is taken, nobody gets pushed out.")}</p>
         <SearchBar locale={locale} />
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -118,11 +114,15 @@ export default async function HomePage({ params }: { params: Promise<{ locale: s
           {countries.slice(0, 8).map((country) => <CountryCard key={country.id} locale={locale} country={country} />)}
         </div>
       </section>
-      <section className="section card">
-        <p className="kicker">TECHPODIO</p>
-        <h2>{t(locale, "Un hueco, un precio, una etiqueta clara.", "One slot, one price, one clear label.")}</h2>
-        <p className="muted">{t(locale, "Pensado primero para España y preparado para el resto de Europa. Sin pujas.", "Built first for Spain and ready for the rest of Europe. No bidding.")}</p>
-        <Link className="btn" href={`/${locale}/precios`}>{t(locale, "Ver precios", "See pricing")}</Link>
+      <section className="cta-band">
+        <p className="kicker">{t(locale, "Para empresas", "For companies")}</p>
+        <h2>{t(locale, "Ocupa el #1 de tu categoría a precio fijo.", "Hold #1 in your category at a fixed price.")}</h2>
+        <p>{t(locale, "Elige el ranking, mira si el hueco está libre y paga el importe de la regla vigente. La etiqueta Patrocinado queda visible. Si está ocupado, entras en la lista de espera.", "Pick the ranking, see whether the slot is free, and pay the current rule. The Sponsored label stays visible. If it is taken, you join the waitlist.")}</p>
+        <div className="empty-actions">
+          <Link className="btn" href={`/${locale}/precios`}>{t(locale, "Ver precios", "See pricing")}</Link>
+          <Link className="btn btn-ghost" href={`/${locale}/para-empresas`}>{t(locale, "Cómo contratar", "How to buy")}</Link>
+          <Link className="btn btn-ghost" href={`/${locale}/rankings/artificial-intelligence`}>{t(locale, "Ranking de IA", "AI ranking")}</Link>
+        </div>
       </section>
       <section className="section faq">
         <h2>FAQ</h2>

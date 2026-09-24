@@ -11,7 +11,7 @@ import { companyInclude, listCategories, listCities, listCountries, listIndustri
 import { prisma } from "@/lib/db";
 import { categoryName, countryName, positionLabel, t } from "@/lib/i18n";
 import { isLocale } from "@/lib/i18n";
-import { daysLeft, formatMoney } from "@/lib/money";
+import { daysLeft, formatMoney, renewalSentence } from "@/lib/money";
 import { statusLabel } from "@/lib/labels";
 import { meta } from "@/lib/seo";
 import { EMPLOYEE_RANGES } from "@/lib/site";
@@ -80,7 +80,17 @@ export default async function DashboardPage({ params, searchParams }: { params: 
       {key === "facturacion" && allowed && company ? <Billing locale={locale} companyId={company.id} /> : null}
       {key === "favoritos" ? <Favorites locale={locale} userId={user.id} /> : null}
       {key === "configuracion" ? <Settings locale={locale} /> : null}
-      {key !== "resumen" && key !== "favoritos" && key !== "configuracion" && !allowed ? <EmptyState title={t(locale, "Sin empresa", "No company")} body={t(locale, "Crea una ficha en Perfil para usar el resto del panel.", "Create a profile under Profile to use the rest of the dashboard.")} /> : null}
+      {key !== "resumen" && key !== "favoritos" && key !== "configuracion" && !allowed ? (
+        <EmptyState
+          title={t(locale, "Sin empresa", "No company")}
+          body={t(locale, "Crea una ficha para comprar un hueco, o reclama una empresa ya publicada.", "Create a profile to buy a slot, or claim a company that is already published.")}
+          actions={[
+            { href: `/${locale}/dashboard/perfil`, label: t(locale, "Subir empresa", "Add a company") },
+            { href: `/${locale}/empresas`, label: t(locale, "Reclamar una ficha", "Claim a profile") },
+            { href: `/${locale}/precios`, label: t(locale, "Ver precios", "See pricing") },
+          ]}
+        />
+      ) : null}
     </div>
   );
 }
@@ -89,7 +99,18 @@ function Overview({ locale, hasCompany }: { locale: string; hasCompany: boolean 
   return (
     <section className="card">
       <h2>{t(locale, "Qué puedes hacer", "What you can do")}</h2>
-      <p>{hasCompany ? t(locale, "Edita la ficha, mira posiciones y responde leads. Los números del panel salen de datos reales.", "Edit the profile, review positions, and answer leads. Dashboard numbers come from real data.") : t(locale, "Todavía no hay una empresa vinculada a esta cuenta.", "There is no company linked to this account yet.")}</p>
+      <p>{hasCompany ? t(locale, "Edita la ficha, mira posiciones y responde leads. Los números del panel salen de datos reales.", "Edit the profile, review positions, and answer leads. Dashboard numbers come from real data.") : t(locale, "Todavía no hay una empresa vinculada a esta cuenta. El siguiente paso es crear la ficha y, con un hueco libre, contratar la primera posición.", "There is no company linked to this account yet. The next step is to create the profile and, with a free slot, buy the first position.")}</p>
+      {!hasCompany ? (
+        <div className="empty-actions">
+          <Link className="btn btn-small" href={`/${locale}/dashboard/perfil`}>{t(locale, "Subir empresa", "Add a company")}</Link>
+          <Link className="btn btn-ghost btn-small" href={`/${locale}/precios`}>{t(locale, "Ver precios", "See pricing")}</Link>
+        </div>
+      ) : (
+        <div className="empty-actions">
+          <Link className="btn btn-small" href={`/${locale}/rankings`}>{t(locale, "Elegir un ranking", "Choose a ranking")}</Link>
+          <Link className="btn btn-ghost btn-small" href={`/${locale}/dashboard/posiciones`}>{t(locale, "Ver posiciones", "See positions")}</Link>
+        </div>
+      )}
     </section>
   );
 }
@@ -193,7 +214,18 @@ async function Profile({ locale, company }: { locale: string; company: Prisma.Co
 
 async function Positions({ locale, companyId }: { locale: string; companyId: string }) {
   const slots = await prisma.sponsoredPosition.findMany({ where: { companyId }, include: { category: true, country: true, city: true }, orderBy: { createdAt: "desc" } });
-  if (!slots.length) return <EmptyState title={t(locale, "Sin posiciones", "No positions")} body={t(locale, "Cuando compres un hueco, aparecerá aquí con su caducidad.", "When you buy a slot, it will show up here with its expiry.")} />;
+  if (!slots.length) {
+    return (
+      <EmptyState
+        title={t(locale, "Sin posiciones", "No positions")}
+        body={t(locale, "Tu primera campaña empieza eligiendo un hueco libre en un ranking. El precio sale de la regla vigente.", "Your first campaign starts by choosing a free slot on a ranking. The price comes from the current rule.")}
+        actions={[
+          { href: `/${locale}/rankings`, label: t(locale, "Ver rankings", "View rankings") },
+          { href: `/${locale}/precios`, label: t(locale, "Ver precios", "See pricing") },
+        ]}
+      />
+    );
+  }
   return (
     <div className="grid-cards">
       {slots.map((slot) => {
@@ -205,8 +237,8 @@ async function Positions({ locale, companyId }: { locale: string; companyId: str
             <h3>{positionLabel(locale, slot.position)}</h3>
             <p>{categoryName(locale, slot.category)} · {slot.city?.name || countryName(locale, slot.country)}</p>
             <p className="tiny">{statusLabel(locale, slot.status)} · {formatMoney(slot.priceCents, slot.currency, locale)}</p>
-            {slot.status === "ACTIVE" && left != null ? <p>{t(locale, `Termina en ${left} días.`, `Ends in ${left} days.`)}</p> : null}
-            {slot.status === "ACTIVE" || slot.status === "EXPIRED" ? <Link className="btn btn-small" href={`/${locale}/comprar?${params.toString()}`}>{t(locale, "Renovar", "Renew")}</Link> : null}
+            {slot.status === "ACTIVE" && left != null ? <p className="renewal">{renewalSentence(locale, positionLabel(locale, slot.position), left)}</p> : null}
+            {slot.status === "ACTIVE" || slot.status === "EXPIRED" ? <Link className="btn btn-small btn-copper" href={`/${locale}/comprar?${params.toString()}`}>{t(locale, "Renovar", "Renew")}</Link> : null}
           </article>
         );
       })}

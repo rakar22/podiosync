@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { currentUser } from "@/lib/auth";
 import { t, ui } from "@/lib/i18n";
+import { siteName } from "@/lib/site";
 import { logout } from "@/server/actions";
 
 export async function SiteHeader({ locale }: { locale: string }) {
@@ -21,7 +22,7 @@ export async function SiteHeader({ locale }: { locale: string }) {
       <div className="wrap header-inner">
         <Link className="brand" href={`/${locale}`}>
           <span className="mark" aria-hidden="true"><i /><i /><i /></span>
-          TECHPODIO
+          {siteName()}
         </Link>
         <nav className="nav-desktop" aria-label="Principal">
           {links.map(([href, label]) => <Link key={href} href={`/${locale}/${href}`}>{label}</Link>)}

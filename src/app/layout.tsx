@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { headers } from "next/headers";
-import { publicOrigin } from "@/lib/site";
+import { publicOrigin, siteClaim, siteName } from "@/lib/site";
 import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL(publicOrigin()),
-  title: { default: "TECHPODIO", template: "%s · TECHPODIO" },
-  description: "Descubre las empresas que están construyendo la tecnología de Europa.",
+  title: { default: siteName(), template: `%s · ${siteName()}` },
+  description: siteClaim("es"),
   icons: { icon: "/favicon.svg" },
 };
 

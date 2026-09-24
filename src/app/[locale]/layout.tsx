@@ -5,6 +5,7 @@ import { CookieConsent } from "@/components/cookie-consent";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { readLocale } from "@/lib/locale";
+import { siteName } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -18,7 +19,7 @@ export default async function LocaleLayout({ children, params }: { children: Rea
       <SiteHeader locale={locale} />
       <main id="contenido">{children}</main>
       <SiteFooter locale={locale} />
-      <CookieConsent locale={locale} />
+      <CookieConsent locale={locale} siteName={siteName()} />
       <AnalyticsBeacon locale={locale} path={path} />
     </>
   );

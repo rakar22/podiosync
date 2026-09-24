@@ -9,7 +9,7 @@ import { audit, trackEvent } from "@/lib/audit";
 import { startPurchase } from "@/lib/checkout";
 import { publicPaymentError } from "@/lib/stripe";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
-import { isPosition } from "@/lib/positions";
+import { isPosition, validatePricingInput } from "@/lib/positions";
 import { slugify } from "@/lib/slug";
 import { EMPLOYEE_RANGES } from "@/lib/site";
 import { safeNext } from "@/lib/locale";
@@ -331,24 +331,37 @@ export async function savePricingRule(formData: FormData) {
   const priceCents = Number(formData.get("priceCents") || 0);
   const durationDays = Number(formData.get("durationDays") || 0);
   const position = String(formData.get("position") || "");
-  if (!isPosition(position) || priceCents < 100 || durationDays < 1) redirect(`/${locale}/admin/precios?error=invalid`);
+  const currency = String(formData.get("currency") || "eur").toLowerCase().trim().slice(0, 8);
+  const cityId = String(formData.get("cityId") || "") || null;
+  const countryId = String(formData.get("countryId") || "") || null;
+  const problem = validatePricingInput({ position, priceCents, durationDays, currency, cityId, countryId });
+  if (problem) redirect(`/${locale}/admin/precios?error=${problem}`);
   const data = {
     position,
     priceCents: Math.round(priceCents),
     durationDays: Math.round(durationDays),
-    currency: String(formData.get("currency") || "eur").toLowerCase().slice(0, 8),
+    currency,
     active: formData.get("active") === "on" || formData.get("active") === "true",
     example: false,
     categoryId: String(formData.get("categoryId") || "") || null,
-    countryId: String(formData.get("countryId") || "") || null,
-    cityId: String(formData.get("cityId") || "") || null,
+    countryId,
+    cityId,
     note: String(formData.get("note") || "").slice(0, 300) || null,
   };
   const saved = id
     ? await prisma.pricingRule.update({ where: { id }, data })
     : await prisma.pricingRule.create({ data });
-  await audit("pricing.save", "PricingRule", saved.id, admin.id, { priceCents: data.priceCents });
+  await audit("pricing.save", "PricingRule", saved.id, admin.id, { priceCents: data.priceCents, durationDays: data.durationDays, currency: data.currency, active: data.active });
   redirect(`/${locale}/admin/precios?ok=1`);
+}
+
+export async function flushOutbox(formData: FormData) {
+  const locale = await localeOf(formData);
+  await requireAdmin();
+  const { dispatchOutbox } = await import("@/lib/maintenance");
+  const result = await dispatchOutbox();
+  const configured = Boolean(process.env.RESEND_API_KEY?.trim() && process.env.RESEND_FROM?.trim());
+  redirect(`/${locale}/admin/avisos?ok=mail&sent=${result.sent}&pending=${result.pending}&mail=${configured ? "ready" : "off"}`);
 }
 
 export async function reviewClaim(formData: FormData) {

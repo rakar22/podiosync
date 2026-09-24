@@ -2,12 +2,12 @@ import { Flash } from "@/components/flash";
 import { t } from "@/lib/i18n";
 import { readLocale } from "@/lib/locale";
 import { meta } from "@/lib/seo";
-import { legalIdentity } from "@/lib/site";
+import { legalIdentity, siteName } from "@/lib/site";
 import { submitContact } from "@/server/actions";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const locale = await readLocale(params);
-  return meta(locale, t(locale, "Contacto", "Contact"), t(locale, "Escribe a TECHPODIO.", "Write to TECHPODIO."), "/contacto");
+  return meta(locale, t(locale, "Contacto", "Contact"), t(locale, `Escribe a ${siteName()}.`, `Write to ${siteName()}.`), "/contacto");
 }
 
 export default async function ContactPage({ params, searchParams }: { params: Promise<{ locale: string }>; searchParams: Promise<Record<string, string | undefined>> }) {
@@ -18,7 +18,8 @@ export default async function ContactPage({ params, searchParams }: { params: Pr
     <div className="wrap" style={{ maxWidth: 640 }}>
       <section className="hero">
         <h1>{t(locale, "Contacto", "Contact")}</h1>
-        {legal.email ? <p className="muted">{legal.email}</p> : <p className="muted">{t(locale, "Configura CONTACT_EMAIL para publicar un correo. El formulario guarda el mensaje.", "Set CONTACT_EMAIL to publish an address. The form stores the message.")}</p>}
+        <p className="muted">{legal.email}</p>
+        <p className="tiny">{t(locale, "Usa este formulario para corregir una ficha, pedir su supresión, ejercer derechos de privacidad o escribir sobre una posición patrocinada. El mensaje se guarda. No se envía un email automático salvo que Resend esté configurado para otros avisos.", "Use this form to correct a profile, ask for it to be removed, exercise privacy rights, or write about a sponsored position. The message is stored. An automatic email is not sent unless Resend is configured for other notices.")}</p>
       </section>
       <Flash locale={locale} ok={query.ok} error={query.error} />
       <form action={submitContact} className="form-grid">

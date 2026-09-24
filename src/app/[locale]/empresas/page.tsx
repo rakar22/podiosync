@@ -7,14 +7,15 @@ import { listCategories, listCities, listCountries, listTechnologies, searchComp
 import { t, ui } from "@/lib/i18n";
 import { readLocale } from "@/lib/locale";
 import { meta } from "@/lib/seo";
+import { siteName } from "@/lib/site";
 import { AdSlot } from "@/components/ad-slot";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const locale = await readLocale(params);
-  return meta(locale, t(locale, "Empresas", "Companies"), t(locale, "Directorio de empresas tecnológicas publicadas en TECHPODIO.", "Directory of technology companies published on TECHPODIO."), "/empresas");
+  return meta(locale, t(locale, "Empresas", "Companies"), t(locale, `Directorio de empresas tecnológicas publicadas en ${siteName()}.`, `Directory of technology companies published on ${siteName()}.`), "/empresas");
 }
 
-export async function CompaniesPage({ params, searchParams }: { params: Promise<{ locale: string }>; searchParams: Promise<Record<string, string | undefined>> }) {
+export default async function CompaniesPage({ params, searchParams }: { params: Promise<{ locale: string }>; searchParams: Promise<Record<string, string | undefined>> }) {
   const locale = await readLocale(params);
   const query = await searchParams;
   const page = Math.max(1, Number(query.page || 1) || 1);
@@ -44,7 +45,16 @@ export async function CompaniesPage({ params, searchParams }: { params: Promise<
       </section>
       <SearchFilters locale={locale} q={query.q} categories={categories} countries={countries} cities={cities} technologies={technologies} selected={query} />
       <div className="section">
-        {result.total === 0 ? <EmptyState title={t(locale, "Sin empresas", "No companies")} body={ui(locale).emptyCatalog} /> : (
+        {result.total === 0 ? (
+          <EmptyState
+            title={t(locale, "Sin empresas", "No companies")}
+            body={ui(locale).emptyCatalog}
+            actions={[
+              { href: `/${locale}/register`, label: t(locale, "Subir empresa", "Add a company") },
+              { href: `/${locale}/precios`, label: t(locale, "Ver precios", "See pricing") },
+            ]}
+          />
+        ) : (
           <>
             <CompanyTable locale={locale} companies={result.rows} />
             <div className="grid-cards" style={{ marginTop: 16 }}>
@@ -58,5 +68,3 @@ export async function CompaniesPage({ params, searchParams }: { params: Promise<
     </div>
   );
 }
-
-export default CompaniesPage;

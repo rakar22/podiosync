@@ -14,6 +14,7 @@ export function SponsoredPositionCard({
   company,
   endDate,
   buyHref,
+  otherHref,
   categoryId,
   countryId,
   cityId,
@@ -27,6 +28,7 @@ export function SponsoredPositionCard({
   company?: { name: string; slug: string } | null;
   endDate?: Date | null;
   buyHref: string;
+  otherHref: string;
   categoryId: string;
   countryId: string;
   cityId?: string | null;
@@ -47,7 +49,7 @@ export function SponsoredPositionCard({
         <>
           <p><strong>{ui(locale).unavailable}.</strong> {company ? <Link href={`/${locale}/empresa/${company.slug}`}>{company.name}</Link> : null}</p>
           {left != null && left > 0 ? <p className="tiny">{t(locale, `Termina en ${left} días.`, `Ends in ${left} days.`)}</p> : null}
-          <Link href={buyHref}>{ui(locale).seeOther}</Link>
+          <Link href={otherHref}>{ui(locale).seeOther}</Link>
           <form action={joinWaitlist} className="form-grid">
             <input type="hidden" name="locale" value={locale} />
             <input type="hidden" name="categoryId" value={categoryId} />

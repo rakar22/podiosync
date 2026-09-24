@@ -3,6 +3,7 @@ import { JsonLd } from "@/components/json-ld";
 import { t } from "@/lib/i18n";
 import { readLocale } from "@/lib/locale";
 import { meta } from "@/lib/seo";
+import { siteName } from "@/lib/site";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const locale = await readLocale(params);
@@ -21,7 +22,14 @@ export default async function ForCompaniesPage({ params }: { params: Promise<{ l
       <section className="hero">
         <p className="kicker">{t(locale, "Para empresas", "For companies")}</p>
         <h1>{t(locale, "Haz visible tu empresa donde te buscan.", "Make your company visible where people look.")}</h1>
-        <p className="lede">{t(locale, "TECHPODIO es un directorio B2B. Creas la ficha con los datos que quieres publicar, la reclamas y, si un hueco está libre, lo contratas a precio fijo. La etiqueta “Patrocinado” no se esconde.", "TECHPODIO is a B2B directory. You create the profile with the facts you want to publish, claim it, and if a slot is free you buy it at a fixed price. The “Sponsored” label is not hidden.")}</p>
+        <p className="lede">{t(locale, `${siteName()} es un directorio B2B. Creas la ficha con los datos que quieres publicar, la reclamas y, si un hueco está libre, lo contratas a precio fijo. La etiqueta “Patrocinado” queda a la vista. El listado orgánico va debajo y no se compra.`, `${siteName()} is a B2B directory. You create the profile with the facts you want to publish, claim it, and if a slot is free you buy it at a fixed price. The “Sponsored” label stays visible. The organic list sits below and is not for sale.`)}</p>
+      </section>
+      <section className="steps">
+        {[
+          [t(locale, "Visibilidad", "Visibility"), t(locale, "Sales en el ranking de tu categoría, país y ciudad, separado de las fichas orgánicas.", "You appear on the ranking for your category, country, and city, apart from organic profiles.")],
+          [t(locale, "Precio cerrado", "A closed price"), t(locale, "El importe lo marca la regla de administración. No hay puja ni desplazamiento por pagar más.", "Admin rules set the amount. There is no bid and no displacement by paying more.")],
+          [t(locale, "Hueco único", "One slot"), t(locale, "Si está ocupado ves la lista de espera y el resto de posiciones. Si es tuyo, renuevas desde el panel.", "If it is taken you see the waitlist and the other positions. If it is yours, you renew from the dashboard.")],
+        ].map(([title, body]) => <article className="card" key={title}><h2>{title}</h2><p>{body}</p></article>)}
       </section>
       <ol>
         <li>{t(locale, "Crea una cuenta y la ficha de tu empresa.", "Create an account and your company profile.")}</li>

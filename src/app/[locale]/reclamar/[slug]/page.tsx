@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Flash } from "@/components/flash";
 import { currentUser } from "@/lib/auth";
@@ -28,6 +29,9 @@ export default async function ClaimPage({ params, searchParams }: { params: Prom
         <p className="muted">{t(locale, "Un admin revisa la solicitud. Hasta entonces no editas la ficha, salvo que ya seas miembro.", "An admin reviews the request. Until then you do not edit the profile, unless you are already a member.")}</p>
       </section>
       <Flash locale={locale} ok={query.ok} error={query.error} />
+      {query.ok ? (
+        <p className="notice">{t(locale, "Solicitud guardada. Cuando un admin la apruebe, la ficha aparecerá en tu panel y podrás contratar un hueco.", "Request saved. When an admin approves it, the profile appears in your dashboard and you can buy a slot.")} <Link href={`/${locale}/precios`}>{t(locale, "Ver precios", "See pricing")}</Link></p>
+      ) : null}
       <form action={submitClaim} className="form-grid">
         <input type="hidden" name="locale" value={locale} />
         <input type="hidden" name="companyId" value={company.id} />

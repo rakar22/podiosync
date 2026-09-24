@@ -25,10 +25,16 @@ export function RankingBoard({
         <h2>{labels.sponsored}</h2>
       </div>
       <p className="tiny">{t(locale, "Espacio publicitario a precio fijo. Ocupar una posición no significa liderazgo de mercado.", "Advertising space at a fixed price. Holding a position does not mean market leadership.")}</p>
-      <div className="grid-cards">
+      <div className="grid-cards" id="huecos">
         {board.sponsored.map((slot) => {
           const params = new URLSearchParams({ categoryId, countryId, position: slot.position });
           if (cityId) params.set("cityId", cityId);
+          const sibling = board.sponsored.find((item) => item.position !== slot.position && item.availability.available);
+          const siblingParams = new URLSearchParams({ categoryId, countryId, position: sibling?.position || "" });
+          if (cityId) siblingParams.set("cityId", cityId);
+          const otherHref = sibling
+            ? `/${locale}/comprar?${siblingParams.toString()}`
+            : `/${locale}/precios`;
           return (
             <SponsoredPositionCard
               key={slot.position}
@@ -41,6 +47,7 @@ export function RankingBoard({
               company={slot.active?.company ? { name: slot.active.company.name, slug: slot.active.company.slug } : null}
               endDate={slot.active?.endDate}
               buyHref={`/${locale}/comprar?${params.toString()}`}
+              otherHref={otherHref}
               categoryId={categoryId}
               countryId={countryId}
               cityId={cityId}

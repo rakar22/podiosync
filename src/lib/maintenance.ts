@@ -1,5 +1,6 @@
 import { prisma } from "./db";
 import { audit } from "./audit";
+import { siteName } from "./site";
 
 async function refreshPremium(companyId: string | null) {
   if (!companyId) return;
@@ -38,8 +39,9 @@ async function enqueueWaitlist(slot: {
     const dedupeKey = `waitlist:${alert.id}:${slot.id}`;
     const existing = await prisma.notificationOutbox.findUnique({ where: { dedupeKey } });
     if (existing) continue;
-    const subject = `TECHPODIO · posición libre · ${slot.category.nameEs} · ${place}`;
-    const body = `La posición ${slot.position} en ${slot.category.nameEs} (${place}) ha quedado libre. Entra en TECHPODIO para comprarla a precio fijo si sigue disponible.`;
+    const name = siteName();
+    const subject = `${name} · posición libre · ${slot.category.nameEs} · ${place}`;
+    const body = `La posición ${slot.position} en ${slot.category.nameEs} (${place}) ha quedado libre. Entra en ${name} para comprarla a precio fijo si sigue disponible.`;
     await prisma.notificationOutbox.create({
       data: { toEmail: alert.email, subject, body, kind: "waitlist", dedupeKey },
     });

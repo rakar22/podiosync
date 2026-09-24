@@ -9,6 +9,7 @@ import { prisma } from "@/lib/db";
 import { categoryName, countryName, t, ui } from "@/lib/i18n";
 import { isLocale } from "@/lib/i18n";
 import { meta } from "@/lib/seo";
+import { siteName } from "@/lib/site";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string; categoria: string; ubicacion: string }> }) {
   const { locale, categoria, ubicacion } = await params;
@@ -61,7 +62,7 @@ export default async function LandingPage({ params }: { params: Promise<{ locale
   ];
   return (
     <div className="wrap">
-      <Breadcrumbs items={[{ href: `/${locale}`, label: "TECHPODIO" }, { href: `/${locale}/categorias/${category.slug}`, label: name }, { href: city ? `/${locale}/ciudades/${city.slug}` : `/${locale}/paises/${country.slug}`, label: place }, { label: t(locale, "Directorio", "Directory") }]} />
+      <Breadcrumbs items={[{ href: `/${locale}`, label: siteName() }, { href: `/${locale}/categorias/${category.slug}`, label: name }, { href: city ? `/${locale}/ciudades/${city.slug}` : `/${locale}/paises/${country.slug}`, label: place }, { label: t(locale, "Directorio", "Directory") }]} />
       <section className="hero">
         <p className="kicker">{t(locale, "Directorio", "Directory")}</p>
         <h1>{t(locale, `Empresas de ${name} en ${place}`, `${name} companies in ${place}`)}</h1>
@@ -77,7 +78,17 @@ export default async function LandingPage({ params }: { params: Promise<{ locale
       </section>
       <section className="section">
         <h2>{t(locale, "Empresas publicadas", "Published companies")} ({companies.length})</h2>
-        {companies.length ? <div className="grid-cards">{companies.map((company) => <CompanyCard key={company.id} locale={locale} company={company} />)}</div> : <EmptyState title={place} body={ui(locale).emptyCatalog} />}
+        {companies.length ? <div className="grid-cards">{companies.map((company) => <CompanyCard key={company.id} locale={locale} company={company} />)}</div> : (
+          <EmptyState
+            title={t(locale, `Aún sin empresas en ${place}`, `No companies in ${place} yet`)}
+            body={t(locale, `Esta página sigue indexable: explica el ámbito, enlaza el ranking y no rellena el listado con fichas inventadas. ${ui(locale).emptyCatalog}`, `This page stays indexable: it explains the scope, links the ranking, and does not fill the list with invented profiles. ${ui(locale).emptyCatalog}`)}
+            actions={[
+              { href: ranking, label: t(locale, "Ver posiciones del ranking", "See ranking positions") },
+              { href: `/${locale}/register`, label: t(locale, "Subir empresa", "Add a company") },
+              { href: `/${locale}/precios`, label: t(locale, "Ver precios", "See pricing") },
+            ]}
+          />
+        )}
       </section>
       <section className="section">
         <h2>{t(locale, "También en este mapa", "Also on this map")}</h2>

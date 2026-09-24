@@ -11,3 +11,9 @@ export function daysLeft(end: Date | null | undefined, now = new Date()) {
   const ms = end.getTime() - now.getTime();
   return Math.ceil(ms / (1000 * 60 * 60 * 24));
 }
+
+export function renewalSentence(locale: string, positionName: string, days: number) {
+  const label = positionName.charAt(0).toLowerCase() + positionName.slice(1);
+  if (locale === "en") return `Your ${label} ends in ${days} days.`;
+  return `Tu ${label} termina en ${days} días.`;
+}

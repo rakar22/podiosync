@@ -75,3 +75,19 @@ export function slotAvailability(slots: SlotView[], now: Date, ignoreId?: string
   const blocking = slots.find((slot) => isBlockingSlot(slot, now, ignoreId));
   return blocking ? { available: false as const, blocking } : { available: true as const, blocking: null };
 }
+
+export function validatePricingInput(input: {
+  position: string;
+  priceCents: number;
+  durationDays: number;
+  currency: string;
+  cityId?: string | null;
+  countryId?: string | null;
+}) {
+  if (!isPosition(input.position)) return "POSITION";
+  if (!Number.isFinite(input.priceCents) || input.priceCents < 100 || input.priceCents > 10_000_000) return "PRICE";
+  if (!Number.isFinite(input.durationDays) || input.durationDays < 1 || input.durationDays > 3650) return "DURATION";
+  if (!/^[a-z]{3}$/.test(input.currency)) return "CURRENCY";
+  if (input.cityId && !input.countryId) return "CITY";
+  return null;
+}

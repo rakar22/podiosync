@@ -6,7 +6,7 @@ import { activeRules, listCategories, listCities, listCountries } from "@/lib/ca
 import { t } from "@/lib/i18n";
 import { readLocale } from "@/lib/locale";
 import { meta } from "@/lib/seo";
-import { stripeMode } from "@/lib/stripe";
+import { stripeEnabled, stripeMode } from "@/lib/stripe";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const locale = await readLocale(params);
@@ -25,6 +25,7 @@ export default async function BuyPage({ params, searchParams }: { params: Promis
         <p className="lede">{t(locale, "El precio se resuelve al pagar. Si alguien ocupa el hueco antes de que Stripe confirme, no activamos la campaña encima de otra empresa.", "The price is resolved at payment. If someone takes the slot before Stripe confirms, we do not activate a campaign on top of another company.")}</p>
         <p className="tiny">Stripe: {stripeMode()}</p>
       </section>
+      {!stripeEnabled() ? <p className="notice">{t(locale, "Pagos pendientes de configuración. Puedes revisar el precio, pero el checkout no abre Stripe hasta que el servidor tenga STRIPE_SECRET_KEY.", "Payments are pending setup. You can review the price, but checkout will not open Stripe until the server has STRIPE_SECRET_KEY.")}</p> : null}
       <Flash locale={locale} error={query.error} />
       {user ? (
         <BuyForm
