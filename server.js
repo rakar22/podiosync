@@ -1,5 +1,10 @@
 const { createServer } = require("http");
 const { parse } = require("url");
+const { applyDatabaseEnv } = require("./scripts/database-url.cjs");
+
+const database = applyDatabaseEnv(process.env, __dirname);
+if (database.filePath) console.log(`SQLite database: ${database.filePath}`);
+
 const next = require("next");
 
 if (!process.env.NODE_ENV) process.env.NODE_ENV = "production";

@@ -4,7 +4,31 @@ Producto: TECHPODIO
 Repo: https://github.com/rakar22/podiosync  
 Dominio de referencia: https://podiosync.es
 
-La app es Next.js. Hostinger tiene que **construir** el proyecto y arrancar `server.js`. SQLite vive en `data/techpodio.db`, junto al código. El disco de la app tiene que conservar ese archivo entre reinicios. Si el plan borra el disco en cada deploy, pasa a Postgres (al final de esta guía) antes de cobrar de verdad.
+La app es Next.js. Hostinger tiene que **construir** el proyecto y arrancar `server.js`.
+
+## SQLite (esto evita el HTTP 500)
+
+Hostinger ejecuta cada build en una carpeta versionada:
+
+`/home/u591947527/domains/podiosync.es/hbuilds/versions/<uuid>/nodejs/`
+
+`DATABASE_URL=file:../data/techpodio.db` abre el archivo **dentro** de esa versión. Prisma responde `Error code 14: Unable to open the database file` y el sitio devuelve 500.
+
+En hPanel, sin comillas:
+
+```
+DATABASE_URL=file:/home/u591947527/domains/podiosync.es/data/techpodio.db
+```
+
+Opcional, el mismo archivo:
+
+```
+SQLITE_PATH=/home/u591947527/domains/podiosync.es/data/techpodio.db
+```
+
+`server.js` y `npm run build` crean el directorio padre antes de que Prisma conecte. Si la variable sigue siendo relativa y el proceso está bajo `hbuilds/versions/.../nodejs`, el código la reescribe a esa ruta absoluta. El archivo queda **fuera** de la versión y sobrevive al siguiente deploy.
+
+Postgres: pon `DATABASE_URL=postgresql://USUARIO:CLAVE@HOST:5432/NOMBRE` y no definas `SQLITE_PATH`. No reutilices la migración SQLite `20260924100000_init`; genera una nueva.
 
 ## Importar
 
@@ -26,7 +50,7 @@ La app es Next.js. Hostinger tiene que **construir** el proyecto y arrancar `ser
 4. Variables de entorno (sin comillas):
 
 ```
-DATABASE_URL=file:../data/techpodio.db
+DATABASE_URL=file:/home/u591947527/domains/podiosync.es/data/techpodio.db
 PUBLIC_URL=https://podiosync.es
 NEXTAUTH_URL=https://podiosync.es
 AUTH_SECRET=...          # openssl rand -base64 32

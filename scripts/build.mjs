@@ -1,9 +1,14 @@
 import { mkdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { applyDatabaseEnv } from "./database-url.cjs";
 
 mkdirSync("data", { recursive: true });
+const database = applyDatabaseEnv(process.env, process.cwd());
 if (!process.env.DATABASE_URL) {
   process.env.DATABASE_URL = "file:../data/techpodio.db";
+}
+if (database.filePath) {
+  console.log(`SQLite database: ${database.filePath}`);
 }
 
 function run(cmd, args) {
