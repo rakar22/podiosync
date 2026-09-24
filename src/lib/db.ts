@@ -1,4 +1,8 @@
 import { PrismaClient } from "@prisma/client";
+// @ts-expect-error shared CJS bootstrap used by server.js before Prisma connects
+import { applyDatabaseEnv } from "../../scripts/database-url.cjs";
+
+applyDatabaseEnv(process.env, process.cwd());
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
