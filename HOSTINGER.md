@@ -49,7 +49,7 @@ Postgres: pon `DATABASE_URL=postgresql://USUARIO:CLAVE@HOST:5432/NOMBRE` y no de
 | Comando de arranque | `npm start` |
 | Entry file | `server.js` |
 
-`npm start` ejecuta `node server.js` con `NODE_ENV=production`. El build aplica migraciones y un seed que no borra precios ya editados ni crea empresas.
+`npm start` ejecuta `node server.js` con `NODE_ENV=production`. El build aplica migraciones y un seed que no borra precios ya editados. Las fichas editoriales son perfiles públicos del directorio, no posiciones patrocinadas.
 
 4. Variables de entorno (sin comillas):
 

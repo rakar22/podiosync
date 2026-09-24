@@ -6,7 +6,7 @@ Directorio B2B de empresas que construyen tecnología en Europa, empezando por E
 
 Las posiciones patrocinadas (#1, #2, #3, Top 5, Destacada, Premium) tienen **precio fijo**. No hay subastas, no hay pujas y pagar más no desplaza a quien ya ocupa el hueco. Si está ocupado, la pantalla dice «Actualmente no disponible» y permite ver otros huecos o dejar un aviso.
 
-El ranking orgánico va debajo, separado, y solo ordena fichas publicadas por verificación y completitud. El catálogo de empresas nace vacío: no hay compañías, rondas, plantillas ni reseñas inventadas.
+El ranking orgánico va debajo, separado, y solo ordena fichas publicadas por verificación y completitud. El seed puede dejar fichas editoriales tomadas de sitios públicos: no son posiciones patrocinadas y no llevan rondas, plantillas ni reseñas inventadas.
 
 ## Stack
 
@@ -42,7 +42,7 @@ npm start
 
 ## Seed
 
-Se crean categorías, países de la UE y Reino Unido, ciudades de España y hubs europeos, tecnologías, industrias y reglas de precio de ejemplo. **No se crean empresas.**
+Se crean categorías, países de la UE y Reino Unido, ciudades de España y hubs europeos, tecnologías, industrias, reglas de precio de ejemplo y fichas editoriales. Esas fichas son perfiles públicos del directorio, no posiciones patrocinadas. Si ya existe una empresa con el mismo slug o el mismo sitio web, el seed no la toca.
 
 El admin solo se crea si `ADMIN_EMAIL` y `ADMIN_PASSWORD` están definidos y el email no existe. El seed no cambia la contraseña en despliegues posteriores.
 
